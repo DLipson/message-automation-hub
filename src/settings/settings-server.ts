@@ -335,6 +335,18 @@ function settingsPage(pageToken: string): string {
         align-items: center;
       }
 
+      .section-heading {
+        display: flex;
+        justify-content: space-between;
+        gap: 12px;
+        align-items: center;
+        margin-bottom: 16px;
+      }
+
+      .section-heading h2 {
+        margin: 0;
+      }
+
       button {
         border: 1px solid transparent;
         border-radius: 6px;
@@ -507,7 +519,10 @@ function settingsPage(pageToken: string): string {
           </section>
 
           <section>
-            <h2>Logs</h2>
+            <div class="section-heading">
+              <h2>Logs</h2>
+              <button class="secondary" id="copy-logs" type="button">Copy Logs</button>
+            </div>
             <pre id="logs"></pre>
           </section>
         </div>
@@ -522,6 +537,7 @@ function settingsPage(pageToken: string): string {
       const secretNotice = document.querySelector("#secret-notice");
       const runNotice = document.querySelector("#run-notice");
       const logs = document.querySelector("#logs");
+      let latestLogText = "";
 
       async function api(path, options = {}) {
         const response = await fetch(path, {
@@ -574,8 +590,32 @@ function settingsPage(pageToken: string): string {
         document.querySelector("#start-bot").disabled =
           bot.status === "starting" || bot.status === "running";
         document.querySelector("#stop-bot").disabled = bot.status === "stopped";
-        logs.textContent = bot.logs.join("\\n");
-        logs.scrollTop = logs.scrollHeight;
+
+        const nextLogText = bot.logs.join("\\n");
+        latestLogText = nextLogText;
+
+        if (logs.textContent === nextLogText || isSelectingLogs()) {
+          return;
+        }
+
+        const shouldStickToBottom =
+          logs.scrollTop + logs.clientHeight >= logs.scrollHeight - 8;
+
+        logs.textContent = nextLogText;
+
+        if (shouldStickToBottom) {
+          logs.scrollTop = logs.scrollHeight;
+        }
+      }
+
+      function isSelectingLogs() {
+        const selection = window.getSelection();
+
+        if (!selection || selection.isCollapsed) {
+          return false;
+        }
+
+        return logs.contains(selection.anchorNode) || logs.contains(selection.focusNode);
       }
 
       async function refresh() {
@@ -672,6 +712,19 @@ function settingsPage(pageToken: string): string {
         } catch (error) {
           runNotice.className = "notice error";
           runNotice.textContent = error.message;
+        }
+      });
+
+      document.querySelector("#copy-logs").addEventListener("click", async () => {
+        runNotice.className = "notice";
+        runNotice.textContent = "Copying logs...";
+
+        try {
+          await navigator.clipboard.writeText(latestLogText);
+          runNotice.textContent = "Logs copied.";
+        } catch (error) {
+          runNotice.className = "notice error";
+          runNotice.textContent = "Could not copy logs.";
         }
       });
 
