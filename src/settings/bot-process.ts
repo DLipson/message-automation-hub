@@ -98,6 +98,10 @@ export class BotProcess {
     };
   }
 
+  addLog(message: string): void {
+    this.appendLog(message);
+  }
+
   private appendLog(text: string): void {
     for (const line of text.split(/\r?\n/)) {
       if (line.trim()) {

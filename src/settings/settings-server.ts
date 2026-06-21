@@ -143,12 +143,16 @@ async function sendTestEmail(): Promise<void> {
   const config = settingsToEmailConfig(settings, smtpPassword);
   const emailSender = new SmtpEmailSender(config.smtp);
 
+  botProcess.addLog(`Sending test email to ${config.email.to}.`);
+
   await emailSender.send({
     from: config.email.from,
     to: config.email.to,
     subject: "Message Automation Hub test email",
     text: "Your SMTP settings are working.",
   });
+
+  botProcess.addLog(`Sent test email to ${config.email.to}.`);
 }
 
 function isAuthorized(request: IncomingMessage, url: URL): boolean {

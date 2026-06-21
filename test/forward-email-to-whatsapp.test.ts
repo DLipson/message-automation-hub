@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { InboundEmail } from "../src/domain/email.js";
+import type { AppLogger } from "../src/ports/app-logger.js";
 import type { EmailInbox } from "../src/ports/email-inbox.js";
 import type {
   WhatsAppDirectMessage,
@@ -29,6 +30,14 @@ class FakeWhatsAppSender implements WhatsAppSender {
   }
 }
 
+class FakeLogger implements AppLogger {
+  readonly messages: string[] = [];
+
+  info(message: string): void {
+    this.messages.push(message);
+  }
+}
+
 describe("ForwardEmailToWhatsApp", () => {
   it("sends matching emails to the phone number declared in the body", async () => {
     const email = emailCommand({
@@ -37,9 +46,10 @@ describe("ForwardEmailToWhatsApp", () => {
     });
     const inbox = new FakeEmailInbox([email]);
     const whatsapp = new FakeWhatsAppSender();
+    const logger = new FakeLogger();
     const forwarder = new ForwardEmailToWhatsApp(inbox, whatsapp, {
       subjectPrefix: "WA:",
-    });
+    }, logger);
 
     await forwarder.processUnread();
 
@@ -50,6 +60,11 @@ describe("ForwardEmailToWhatsApp", () => {
       },
     ]);
     expect(inbox.processed).toEqual([email]);
+    expect(logger.messages).toEqual([
+      'Detected unread email email-1 with subject "WA: please send".',
+      "Forwarding email email-1 to WhatsApp number 12025550108.",
+      "Forwarded email email-1 to WhatsApp number 12025550108.",
+    ]);
   });
 
   it("ignores unread emails with a different subject prefix", async () => {

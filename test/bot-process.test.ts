@@ -62,4 +62,17 @@ describe("BotProcess", () => {
 
     expect(bot.snapshot().status).toBe("stopped");
   });
+
+  it("stores GUI-side log entries in the same log buffer", () => {
+    const bot = new BotProcess({
+      command: "npm",
+      args: ["run", "dev"],
+      cwd: "C:\\project",
+      env: {},
+    });
+
+    bot.addLog("Sending test email to me@example.com.");
+
+    expect(bot.snapshot().logs).toContain("Sending test email to me@example.com.");
+  });
 });

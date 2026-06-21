@@ -1,5 +1,6 @@
 import { ImapEmailInbox } from "./adapters/email/imap-email-inbox.js";
 import { SmtpEmailSender } from "./adapters/email/smtp-email-sender.js";
+import { ConsoleAppLogger } from "./adapters/logging/console-app-logger.js";
 import { OsCredentialSecretStore } from "./adapters/secrets/os-credential-secret-store.js";
 import { WhatsAppWebChannel } from "./adapters/whatsapp/whatsapp-web-channel.js";
 import { loadConfig, loadRuntimeEnv, loadSmtpPassword } from "./config.js";
@@ -12,9 +13,14 @@ loadRuntimeEnv();
 const secretStore = new OsCredentialSecretStore();
 const smtpPassword = await loadSmtpPassword(secretStore);
 const config = loadConfig(process.env, { smtpPassword });
+const logger = new ConsoleAppLogger();
 
 const emailSender = new SmtpEmailSender(config.smtp);
-const forwardMessageToEmail = new ForwardMessageToEmail(emailSender, config.email);
+const forwardMessageToEmail = new ForwardMessageToEmail(
+  emailSender,
+  config.email,
+  logger,
+);
 const whatsapp = new WhatsAppWebChannel(config.whatsapp);
 
 whatsapp.onMessage(message => forwardMessageToEmail.handle(message));
@@ -25,7 +31,7 @@ if (config.emailToWhatsapp.enabled) {
   const inbox = new ImapEmailInbox(config.imap);
   const forwardEmailToWhatsApp = new ForwardEmailToWhatsApp(inbox, whatsapp, {
     subjectPrefix: config.emailToWhatsapp.subjectPrefix,
-  });
+  }, logger);
   const poller = new EmailToWhatsAppPoller(
     forwardEmailToWhatsApp,
     config.emailToWhatsapp.pollIntervalMs,
