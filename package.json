@@ -1,0 +1,23 @@
+{
+  "name": "message-automation-hub",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "tsx src/index.ts",
+    "build": "tsc --noEmit",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "dotenv": "^16.4.7",
+    "nodemailer": "^6.9.16",
+    "whatsapp-web.js": "^1.26.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.2",
+    "@types/nodemailer": "^6.4.17",
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.2",
+    "vitest": "^2.1.8"
+  }
+}

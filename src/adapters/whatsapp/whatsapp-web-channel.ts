@@ -1,0 +1,70 @@
+import pkg from "whatsapp-web.js";
+import type { InboundMessage } from "../../domain/message.js";
+import type {
+  InboundChannel,
+  InboundMessageHandler,
+} from "../../ports/inbound-channel.js";
+
+const { Client, LocalAuth } = pkg;
+
+export type WhatsAppWebChannelConfig = {
+  phoneNumber: string;
+};
+
+export class WhatsAppWebChannel implements InboundChannel {
+  private readonly client: InstanceType<typeof Client>;
+  private handler?: InboundMessageHandler;
+
+  constructor(config: WhatsAppWebChannelConfig) {
+    this.client = new Client({
+      authStrategy: new LocalAuth(),
+      pairWithPhoneNumber: {
+        phoneNumber: config.phoneNumber,
+      },
+    });
+  }
+
+  onMessage(handler: InboundMessageHandler): void {
+    this.handler = handler;
+  }
+
+  async start(): Promise<void> {
+    this.client.on("code", (code: string) => {
+      console.log(`WhatsApp pairing code: ${code}`);
+    });
+
+    this.client.on("ready", () => {
+      console.log("WhatsApp client is ready.");
+    });
+
+    this.client.on("message", async rawMessage => {
+      if (!this.handler) {
+        return;
+      }
+
+      await this.handler(this.toInboundMessage(rawMessage));
+    });
+
+    await this.client.initialize();
+  }
+
+  private toInboundMessage(rawMessage: {
+    id: { _serialized: string };
+    from: string;
+    body: string;
+    timestamp: number;
+    _data?: { notifyName?: string };
+  }): InboundMessage {
+    const from = rawMessage._data?.notifyName
+      ? { id: rawMessage.from, displayName: rawMessage._data.notifyName }
+      : { id: rawMessage.from };
+
+    return {
+      id: rawMessage.id._serialized,
+      channel: "whatsapp",
+      from,
+      text: rawMessage.body,
+      receivedAt: new Date(rawMessage.timestamp * 1000),
+    };
+  }
+}
