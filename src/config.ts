@@ -1,4 +1,14 @@
-import "dotenv/config";
+import { existsSync } from "node:fs";
+import { homedir } from "node:os";
+import { join } from "node:path";
+import { config as loadDotenv } from "dotenv";
+import type { SecretRef, SecretStore } from "./ports/secret-store.js";
+
+export const PROJECT_NAME = "message-automation-hub";
+export const SMTP_PASSWORD_SECRET: SecretRef = {
+  service: PROJECT_NAME,
+  account: "smtp-password",
+};
 
 export type AppConfig = {
   whatsapp: {
@@ -17,7 +27,34 @@ export type AppConfig = {
   };
 };
 
-export function loadConfig(env = process.env): AppConfig {
+export function loadRuntimeEnv(env = process.env): void {
+  const path = env.MESSAGE_HUB_ENV_FILE ?? defaultEnvFilePath();
+
+  if (existsSync(path)) {
+    loadDotenv({ path, override: false });
+  }
+}
+
+export function defaultEnvFilePath(homeDirectory = homedir()): string {
+  return join(homeDirectory, "secrets", PROJECT_NAME, ".env");
+}
+
+export async function loadSmtpPassword(secretStore: SecretStore): Promise<string> {
+  const password = await secretStore.get(SMTP_PASSWORD_SECRET);
+
+  if (!password) {
+    throw new Error(
+      `Missing OS credential: ${SMTP_PASSWORD_SECRET.service}/${SMTP_PASSWORD_SECRET.account}`,
+    );
+  }
+
+  return password;
+}
+
+export function loadConfig(
+  env: NodeJS.ProcessEnv,
+  secrets: { smtpPassword: string },
+): AppConfig {
   return {
     whatsapp: {
       phoneNumber: requireEnv(env, "WHATSAPP_PHONE_NUMBER"),
@@ -27,7 +64,7 @@ export function loadConfig(env = process.env): AppConfig {
       port: readPort(env),
       secure: readBoolean(env, "SMTP_SECURE"),
       user: requireEnv(env, "SMTP_USER"),
-      pass: requireEnv(env, "SMTP_PASS"),
+      pass: secrets.smtpPassword,
     },
     email: {
       from: requireEnv(env, "EMAIL_FROM"),
