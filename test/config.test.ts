@@ -33,6 +33,49 @@ describe("loadConfig", () => {
         from: "bot@example.com",
         to: "me@example.com",
       },
+      imap: {
+        host: "imap.gmail.com",
+        port: 993,
+        secure: true,
+        user: "bot@example.com",
+        pass: "secret",
+      },
+      emailToWhatsapp: {
+        enabled: false,
+        subjectPrefix: "WA:",
+        pollIntervalMs: 30000,
+      },
+    });
+  });
+
+  it("loads optional email to WhatsApp settings", () => {
+    expect(
+      loadConfig(
+        {
+          ...validEnv,
+          EMAIL_TO_WHATSAPP_ENABLED: "true",
+          EMAIL_TO_WHATSAPP_SUBJECT_PREFIX: "SEND:",
+          EMAIL_TO_WHATSAPP_POLL_SECONDS: "10",
+          IMAP_HOST: "imap.example.com",
+          IMAP_PORT: "993",
+          IMAP_SECURE: "true",
+          IMAP_USER: "reader@example.com",
+        },
+        { smtpPassword: "secret" },
+      ),
+    ).toMatchObject({
+      imap: {
+        host: "imap.example.com",
+        port: 993,
+        secure: true,
+        user: "reader@example.com",
+        pass: "secret",
+      },
+      emailToWhatsapp: {
+        enabled: true,
+        subjectPrefix: "SEND:",
+        pollIntervalMs: 10000,
+      },
     });
   });
 

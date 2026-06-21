@@ -43,6 +43,14 @@ export class EnvFileSettingsStore {
       `EMAIL_FROM=${formatEnvValue(settings.emailFrom)}`,
       `EMAIL_TO=${formatEnvValue(settings.emailTo)}`,
       "",
+      `EMAIL_TO_WHATSAPP_ENABLED=${formatEnvValue(String(settings.emailToWhatsappEnabled))}`,
+      `EMAIL_TO_WHATSAPP_SUBJECT_PREFIX=${formatEnvValue(settings.emailToWhatsappSubjectPrefix)}`,
+      `EMAIL_TO_WHATSAPP_POLL_SECONDS=${formatEnvValue(settings.emailToWhatsappPollSeconds)}`,
+      `IMAP_HOST=${formatEnvValue(settings.imapHost)}`,
+      `IMAP_PORT=${formatEnvValue(settings.imapPort)}`,
+      `IMAP_SECURE=${formatEnvValue(String(settings.imapSecure))}`,
+      `IMAP_USER=${formatEnvValue(settings.imapUser)}`,
+      "",
     ].join("\n");
   }
 }

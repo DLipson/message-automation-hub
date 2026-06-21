@@ -482,6 +482,40 @@ function settingsPage(pageToken: string): string {
                   Email to
                   <input name="emailTo" autocomplete="email">
                 </label>
+                <label>
+                  Email to WhatsApp
+                  <select name="emailToWhatsappEnabled">
+                    <option value="false">disabled</option>
+                    <option value="true">enabled</option>
+                  </select>
+                </label>
+                <label>
+                  Command subject prefix
+                  <input name="emailToWhatsappSubjectPrefix" autocomplete="off">
+                </label>
+                <label>
+                  Poll seconds
+                  <input name="emailToWhatsappPollSeconds" inputmode="numeric" autocomplete="off">
+                </label>
+                <label>
+                  IMAP host
+                  <input name="imapHost" autocomplete="off">
+                </label>
+                <label>
+                  IMAP port
+                  <input name="imapPort" inputmode="numeric" autocomplete="off">
+                </label>
+                <label>
+                  IMAP secure
+                  <select name="imapSecure">
+                    <option value="true">true</option>
+                    <option value="false">false</option>
+                  </select>
+                </label>
+                <label>
+                  IMAP user
+                  <input name="imapUser" autocomplete="username">
+                </label>
               </div>
               <div class="actions">
                 <button class="primary" type="submit">Save Settings</button>
@@ -567,6 +601,13 @@ function settingsPage(pageToken: string): string {
           smtpUser: form.smtpUser.value.trim(),
           emailFrom: form.emailFrom.value.trim(),
           emailTo: form.emailTo.value.trim(),
+          emailToWhatsappEnabled: form.emailToWhatsappEnabled.value === "true",
+          emailToWhatsappSubjectPrefix: form.emailToWhatsappSubjectPrefix.value.trim(),
+          emailToWhatsappPollSeconds: form.emailToWhatsappPollSeconds.value.trim(),
+          imapHost: form.imapHost.value.trim(),
+          imapPort: form.imapPort.value.trim(),
+          imapSecure: form.imapSecure.value === "true",
+          imapUser: form.imapUser.value.trim(),
         };
       }
 
@@ -577,7 +618,7 @@ function settingsPage(pageToken: string): string {
         renderBot(state.bot);
 
         for (const [key, value] of Object.entries(state.settings)) {
-          if (key === "smtpSecure") {
+          if (key === "smtpSecure" || key === "emailToWhatsappEnabled" || key === "imapSecure") {
             form[key].value = String(value);
           } else {
             form[key].value = value ?? "";

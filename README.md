@@ -65,6 +65,41 @@ It can:
 - start and stop the bot
 - show bot logs and the WhatsApp pairing code
 
+## Email to WhatsApp
+
+The reverse flow watches unread email through IMAP and sends matching emails as WhatsApp messages.
+
+Enable it in the settings GUI:
+
+```text
+Email to WhatsApp: enabled
+Command subject prefix: WA:
+IMAP host: imap.gmail.com
+IMAP port: 993
+IMAP secure: true
+IMAP user: your Gmail address
+```
+
+For Gmail, enable IMAP in Gmail settings. The app uses the same app password stored in Windows Credential Manager.
+
+Send an email like:
+
+```text
+Subject: WA: send this
+
+To: 972501234567
+
+Message text goes here.
+```
+
+Rules:
+
+- only unread emails are checked
+- the subject must start with the configured prefix
+- the phone number is read from the `To:` line in the email body
+- punctuation and spaces are removed from the phone number
+- the email is marked read only after the WhatsApp send succeeds
+
 ## Notes
 
 - `WHATSAPP_PHONE_NUMBER` must be digits only, with country code and no `+`.

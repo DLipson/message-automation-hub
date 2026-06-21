@@ -36,6 +36,13 @@ describe("EnvFileSettingsStore", () => {
       smtpUser: "bot@example.com",
       emailFrom: "bot@example.com",
       emailTo: "me@example.com",
+      emailToWhatsappEnabled: true,
+      emailToWhatsappSubjectPrefix: "WA:",
+      emailToWhatsappPollSeconds: "30",
+      imapHost: "imap.gmail.com",
+      imapPort: "993",
+      imapSecure: true,
+      imapUser: "bot@example.com",
     });
 
     await expect(store.read()).resolves.toEqual({
@@ -46,6 +53,13 @@ describe("EnvFileSettingsStore", () => {
       smtpUser: "bot@example.com",
       emailFrom: "bot@example.com",
       emailTo: "me@example.com",
+      emailToWhatsappEnabled: true,
+      emailToWhatsappSubjectPrefix: "WA:",
+      emailToWhatsappPollSeconds: "30",
+      imapHost: "imap.gmail.com",
+      imapPort: "993",
+      imapSecure: true,
+      imapUser: "bot@example.com",
     });
 
     await expect(readFile(filePath, "utf8")).resolves.not.toContain("PASS");

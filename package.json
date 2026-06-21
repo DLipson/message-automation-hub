@@ -12,11 +12,14 @@
   },
   "dependencies": {
     "dotenv": "^16.4.7",
+    "imapflow": "^1.4.2",
     "keytar": "^7.9.0",
+    "mailparser": "^3.9.11",
     "nodemailer": "^6.9.16",
     "whatsapp-web.js": "^1.26.0"
   },
   "devDependencies": {
+    "@types/mailparser": "^3.4.6",
     "@types/node": "^22.10.2",
     "@types/nodemailer": "^6.4.17",
     "tsx": "^4.19.2",

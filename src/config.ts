@@ -25,6 +25,18 @@ export type AppConfig = {
     from: string;
     to: string;
   };
+  imap: {
+    host: string;
+    port: number;
+    secure: boolean;
+    user: string;
+    pass: string;
+  };
+  emailToWhatsapp: {
+    enabled: boolean;
+    subjectPrefix: string;
+    pollIntervalMs: number;
+  };
 };
 
 export function loadRuntimeEnv(env = process.env): void {
@@ -70,6 +82,19 @@ export function loadConfig(
       from: requireEnv(env, "EMAIL_FROM"),
       to: requireEnv(env, "EMAIL_TO"),
     },
+    imap: {
+      host: optionalEnv(env, "IMAP_HOST") ?? "imap.gmail.com",
+      port: readOptionalPort(env, "IMAP_PORT") ?? 993,
+      secure: readOptionalBoolean(env, "IMAP_SECURE") ?? true,
+      user: optionalEnv(env, "IMAP_USER") ?? requireEnv(env, "SMTP_USER"),
+      pass: secrets.smtpPassword,
+    },
+    emailToWhatsapp: {
+      enabled: readOptionalBoolean(env, "EMAIL_TO_WHATSAPP_ENABLED") ?? false,
+      subjectPrefix: optionalEnv(env, "EMAIL_TO_WHATSAPP_SUBJECT_PREFIX") ?? "WA:",
+      pollIntervalMs:
+        (readOptionalPort(env, "EMAIL_TO_WHATSAPP_POLL_SECONDS") ?? 30) * 1000,
+    },
   };
 }
 
@@ -83,6 +108,10 @@ function requireEnv(env: NodeJS.ProcessEnv, key: string): string {
   return value;
 }
 
+function optionalEnv(env: NodeJS.ProcessEnv, key: string): string | null {
+  return env[key]?.trim() || null;
+}
+
 function readPort(env: NodeJS.ProcessEnv): number {
   const value = Number(requireEnv(env, "SMTP_PORT"));
 
@@ -93,8 +122,48 @@ function readPort(env: NodeJS.ProcessEnv): number {
   return value;
 }
 
+function readOptionalPort(
+  env: NodeJS.ProcessEnv,
+  key: string,
+): number | null {
+  const rawValue = optionalEnv(env, key);
+
+  if (!rawValue) {
+    return null;
+  }
+
+  const value = Number(rawValue);
+
+  if (!Number.isInteger(value) || value <= 0) {
+    throw new Error(`${key} must be a positive integer`);
+  }
+
+  return value;
+}
+
 function readBoolean(env: NodeJS.ProcessEnv, key: string): boolean {
   const value = requireEnv(env, key).toLowerCase();
+
+  if (value === "true") {
+    return true;
+  }
+
+  if (value === "false") {
+    return false;
+  }
+
+  throw new Error(`${key} must be true or false`);
+}
+
+function readOptionalBoolean(
+  env: NodeJS.ProcessEnv,
+  key: string,
+): boolean | null {
+  const value = optionalEnv(env, key)?.toLowerCase();
+
+  if (!value) {
+    return null;
+  }
 
   if (value === "true") {
     return true;

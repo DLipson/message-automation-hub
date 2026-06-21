@@ -4,6 +4,10 @@ import type {
   InboundChannel,
   InboundMessageHandler,
 } from "../../ports/inbound-channel.js";
+import type {
+  WhatsAppDirectMessage,
+  WhatsAppSender,
+} from "../../ports/whatsapp-sender.js";
 
 const { Client, LocalAuth } = pkg;
 
@@ -11,7 +15,7 @@ export type WhatsAppWebChannelConfig = {
   phoneNumber: string;
 };
 
-export class WhatsAppWebChannel implements InboundChannel {
+export class WhatsAppWebChannel implements InboundChannel, WhatsAppSender {
   private readonly client: InstanceType<typeof Client>;
   private handler?: InboundMessageHandler;
 
@@ -46,6 +50,13 @@ export class WhatsAppWebChannel implements InboundChannel {
     });
 
     await this.client.initialize();
+  }
+
+  async sendMessage(message: WhatsAppDirectMessage): Promise<void> {
+    await this.client.sendMessage(
+      `${message.phoneNumber}@c.us`,
+      message.text,
+    );
   }
 
   private toInboundMessage(rawMessage: {

@@ -8,6 +8,13 @@ export type AppSettings = {
   smtpUser: string;
   emailFrom: string;
   emailTo: string;
+  emailToWhatsappEnabled: boolean;
+  emailToWhatsappSubjectPrefix: string;
+  emailToWhatsappPollSeconds: string;
+  imapHost: string;
+  imapPort: string;
+  imapSecure: boolean;
+  imapUser: string;
 };
 
 export const emptyAppSettings: AppSettings = {
@@ -18,6 +25,13 @@ export const emptyAppSettings: AppSettings = {
   smtpUser: "",
   emailFrom: "",
   emailTo: "",
+  emailToWhatsappEnabled: false,
+  emailToWhatsappSubjectPrefix: "WA:",
+  emailToWhatsappPollSeconds: "30",
+  imapHost: "imap.gmail.com",
+  imapPort: "993",
+  imapSecure: true,
+  imapUser: "",
 };
 
 export function appSettingsToEnv(settings: AppSettings): Record<string, string> {
@@ -29,6 +43,13 @@ export function appSettingsToEnv(settings: AppSettings): Record<string, string> 
     SMTP_USER: settings.smtpUser,
     EMAIL_FROM: settings.emailFrom,
     EMAIL_TO: settings.emailTo,
+    EMAIL_TO_WHATSAPP_ENABLED: String(settings.emailToWhatsappEnabled),
+    EMAIL_TO_WHATSAPP_SUBJECT_PREFIX: settings.emailToWhatsappSubjectPrefix,
+    EMAIL_TO_WHATSAPP_POLL_SECONDS: settings.emailToWhatsappPollSeconds,
+    IMAP_HOST: settings.imapHost,
+    IMAP_PORT: settings.imapPort,
+    IMAP_SECURE: String(settings.imapSecure),
+    IMAP_USER: settings.imapUser,
   };
 }
 
@@ -44,6 +65,18 @@ export function envToAppSettings(
     smtpUser: env.SMTP_USER ?? emptyAppSettings.smtpUser,
     emailFrom: env.EMAIL_FROM ?? emptyAppSettings.emailFrom,
     emailTo: env.EMAIL_TO ?? emptyAppSettings.emailTo,
+    emailToWhatsappEnabled:
+      (env.EMAIL_TO_WHATSAPP_ENABLED ?? "false").toLowerCase() === "true",
+    emailToWhatsappSubjectPrefix:
+      env.EMAIL_TO_WHATSAPP_SUBJECT_PREFIX ??
+      emptyAppSettings.emailToWhatsappSubjectPrefix,
+    emailToWhatsappPollSeconds:
+      env.EMAIL_TO_WHATSAPP_POLL_SECONDS ??
+      emptyAppSettings.emailToWhatsappPollSeconds,
+    imapHost: env.IMAP_HOST ?? emptyAppSettings.imapHost,
+    imapPort: env.IMAP_PORT ?? emptyAppSettings.imapPort,
+    imapSecure: (env.IMAP_SECURE ?? "true").toLowerCase() === "true",
+    imapUser: env.IMAP_USER ?? emptyAppSettings.imapUser,
   };
 }
 
@@ -71,6 +104,18 @@ export function settingsToEmailConfig(
     email: {
       from: settings.emailFrom,
       to: settings.emailTo,
+    },
+    imap: {
+      host: settings.imapHost,
+      port: Number(settings.imapPort),
+      secure: settings.imapSecure,
+      user: settings.imapUser || settings.smtpUser,
+      pass: smtpPassword,
+    },
+    emailToWhatsapp: {
+      enabled: settings.emailToWhatsappEnabled,
+      subjectPrefix: settings.emailToWhatsappSubjectPrefix,
+      pollIntervalMs: Number(settings.emailToWhatsappPollSeconds) * 1000,
     },
   };
 }
