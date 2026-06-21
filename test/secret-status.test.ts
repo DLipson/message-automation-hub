@@ -43,4 +43,15 @@ describe("SecretStatus", () => {
       "SMTP password cannot be empty",
     );
   });
+
+  it("removes spaces from pasted app passwords before saving", async () => {
+    const store = new FakeSecretStore();
+    const status = new SecretStatus(store);
+
+    await status.setSmtpPassword("abcd efgh ijkl mnop");
+
+    await expect(store.get({ service: "any", account: "any" })).resolves.toBe(
+      "abcdefghijklmnop",
+    );
+  });
 });

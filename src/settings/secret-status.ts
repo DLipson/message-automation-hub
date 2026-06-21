@@ -9,7 +9,7 @@ export class SecretStatus {
   }
 
   async setSmtpPassword(password: string): Promise<void> {
-    const trimmed = password.trim();
+    const trimmed = password.replaceAll(" ", "").trim();
 
     if (!trimmed) {
       throw new Error("SMTP password cannot be empty");
