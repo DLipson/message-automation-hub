@@ -1,6 +1,8 @@
 import { stdin, stdout } from "node:process";
-import { OsCredentialSecretStore } from "../adapters/secrets/os-credential-secret-store.js";
-import { SMTP_PASSWORD_SECRET } from "../config.js";
+import { createSecretStore } from "../adapters/secrets/secret-store-factory.js";
+import { loadRuntimeEnv, SMTP_PASSWORD_SECRET } from "../config.js";
+
+loadRuntimeEnv();
 
 const password = await readPassword("SMTP app password: ");
 
@@ -8,11 +10,11 @@ if (!password.trim()) {
   throw new Error("Password cannot be empty");
 }
 
-const secretStore = new OsCredentialSecretStore();
+const secretStore = await createSecretStore();
 await secretStore.set(SMTP_PASSWORD_SECRET, password);
 
 stdout.write(
-  `Saved ${SMTP_PASSWORD_SECRET.service}/${SMTP_PASSWORD_SECRET.account} to the OS credential store.\n`,
+  `Saved ${SMTP_PASSWORD_SECRET.service}/${SMTP_PASSWORD_SECRET.account} to the configured secret store.\n`,
 );
 
 async function readPassword(prompt: string): Promise<string> {

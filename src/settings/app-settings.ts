@@ -2,6 +2,8 @@ import type { AppConfig } from "../config.js";
 
 export type AppSettings = {
   whatsappPhoneNumber: string;
+  messageHubSecretStore: string;
+  messageHubSecretFile: string;
   smtpHost: string;
   smtpPort: string;
   smtpSecure: boolean;
@@ -19,6 +21,8 @@ export type AppSettings = {
 
 export const emptyAppSettings: AppSettings = {
   whatsappPhoneNumber: "",
+  messageHubSecretStore: "auto",
+  messageHubSecretFile: "",
   smtpHost: "smtp.gmail.com",
   smtpPort: "465",
   smtpSecure: true,
@@ -37,6 +41,8 @@ export const emptyAppSettings: AppSettings = {
 export function appSettingsToEnv(settings: AppSettings): Record<string, string> {
   return {
     WHATSAPP_PHONE_NUMBER: settings.whatsappPhoneNumber,
+    MESSAGE_HUB_SECRET_STORE: settings.messageHubSecretStore,
+    MESSAGE_HUB_SECRET_FILE: settings.messageHubSecretFile,
     SMTP_HOST: settings.smtpHost,
     SMTP_PORT: settings.smtpPort,
     SMTP_SECURE: String(settings.smtpSecure),
@@ -59,6 +65,10 @@ export function envToAppSettings(
   return {
     whatsappPhoneNumber:
       env.WHATSAPP_PHONE_NUMBER ?? emptyAppSettings.whatsappPhoneNumber,
+    messageHubSecretStore:
+      env.MESSAGE_HUB_SECRET_STORE ?? emptyAppSettings.messageHubSecretStore,
+    messageHubSecretFile:
+      env.MESSAGE_HUB_SECRET_FILE ?? emptyAppSettings.messageHubSecretFile,
     smtpHost: env.SMTP_HOST ?? emptyAppSettings.smtpHost,
     smtpPort: env.SMTP_PORT ?? emptyAppSettings.smtpPort,
     smtpSecure: (env.SMTP_SECURE ?? "true").toLowerCase() === "true",

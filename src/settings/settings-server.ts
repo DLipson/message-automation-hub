@@ -1,8 +1,8 @@
 import { randomBytes } from "node:crypto";
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
-import { defaultEnvFilePath, loadSmtpPassword } from "../config.js";
+import { defaultEnvFilePath, loadRuntimeEnv, loadSmtpPassword } from "../config.js";
 import { SmtpEmailSender } from "../adapters/email/smtp-email-sender.js";
-import { OsCredentialSecretStore } from "../adapters/secrets/os-credential-secret-store.js";
+import { createSecretStore } from "../adapters/secrets/secret-store-factory.js";
 import { EnvFileSettingsStore } from "./env-file-settings-store.js";
 import { SecretStatus } from "./secret-status.js";
 import { BotProcess } from "./bot-process.js";
@@ -12,8 +12,9 @@ const host = "127.0.0.1";
 const port = Number(process.env.MESSAGE_HUB_SETTINGS_PORT ?? 0);
 const token = randomBytes(24).toString("hex");
 const envFilePath = process.env.MESSAGE_HUB_ENV_FILE ?? defaultEnvFilePath();
+loadRuntimeEnv();
 const settingsStore = new EnvFileSettingsStore(envFilePath);
-const secretStore = new OsCredentialSecretStore();
+const secretStore = await createSecretStore();
 const secretStatus = new SecretStatus(secretStore);
 const botProcess = new BotProcess({
   command: "npm",
@@ -460,6 +461,18 @@ function settingsPage(pageToken: string): string {
                   <input name="whatsappPhoneNumber" autocomplete="off">
                 </label>
                 <label>
+                  Secret store
+                  <select name="messageHubSecretStore">
+                    <option value="auto">auto</option>
+                    <option value="windows-credential">windows-credential</option>
+                    <option value="file">file</option>
+                  </select>
+                </label>
+                <label>
+                  Secret file
+                  <input name="messageHubSecretFile" autocomplete="off">
+                </label>
+                <label>
                   SMTP host
                   <input name="smtpHost" autocomplete="off">
                 </label>
@@ -599,6 +612,8 @@ function settingsPage(pageToken: string): string {
       function readSettings() {
         return {
           whatsappPhoneNumber: form.whatsappPhoneNumber.value.trim(),
+          messageHubSecretStore: form.messageHubSecretStore.value,
+          messageHubSecretFile: form.messageHubSecretFile.value.trim(),
           smtpHost: form.smtpHost.value.trim(),
           smtpPort: form.smtpPort.value.trim(),
           smtpSecure: form.smtpSecure.value === "true",

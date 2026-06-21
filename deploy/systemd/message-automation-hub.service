@@ -1,0 +1,20 @@
+[Unit]
+Description=Message Automation Hub
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=/opt/message-automation-hub
+Environment=NODE_ENV=production
+Environment=MESSAGE_HUB_ENV_FILE=/home/opc/secrets/message-automation-hub/.env
+Environment=MESSAGE_HUB_SECRET_STORE=file
+Environment=MESSAGE_HUB_SECRET_FILE=/home/opc/secrets/message-automation-hub/secrets.json
+ExecStart=/usr/bin/npm run dev
+Restart=on-failure
+RestartSec=10
+User=opc
+Group=opc
+
+[Install]
+WantedBy=multi-user.target

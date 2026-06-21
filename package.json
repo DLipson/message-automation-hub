@@ -13,7 +13,6 @@
   "dependencies": {
     "dotenv": "^16.4.7",
     "imapflow": "^1.4.2",
-    "keytar": "^7.9.0",
     "mailparser": "^3.9.11",
     "nodemailer": "^6.9.16",
     "whatsapp-web.js": "^1.26.0"
@@ -25,5 +24,8 @@
     "tsx": "^4.19.2",
     "typescript": "^5.7.2",
     "vitest": "^2.1.8"
+  },
+  "optionalDependencies": {
+    "keytar": "^7.9.0"
   }
 }

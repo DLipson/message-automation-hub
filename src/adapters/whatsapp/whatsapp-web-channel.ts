@@ -1,4 +1,5 @@
 import pkg from "whatsapp-web.js";
+import { platform } from "node:os";
 import type { InboundMessage } from "../../domain/message.js";
 import type {
   InboundChannel,
@@ -24,6 +25,9 @@ export class WhatsAppWebChannel implements InboundChannel, WhatsAppSender {
       authStrategy: new LocalAuth(),
       pairWithPhoneNumber: {
         phoneNumber: config.phoneNumber,
+      },
+      puppeteer: {
+        args: browserArgs(),
       },
     });
   }
@@ -78,4 +82,12 @@ export class WhatsAppWebChannel implements InboundChannel, WhatsAppSender {
       receivedAt: new Date(rawMessage.timestamp * 1000),
     };
   }
+}
+
+function browserArgs(): string[] {
+  if (platform() !== "linux") {
+    return [];
+  }
+
+  return ["--no-sandbox", "--disable-setuid-sandbox"];
 }

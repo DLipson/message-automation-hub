@@ -106,8 +106,46 @@ Rules:
 - Gmail SMTP usually requires an app password.
 - The app loads non-secret env vars from `%USERPROFILE%\secrets\message-automation-hub\.env`.
 - Set `MESSAGE_HUB_ENV_FILE` if you want to use a different env file path.
-- The SMTP password is read from Windows Credential Manager as `message-automation-hub/smtp-password`.
+- `MESSAGE_HUB_SECRET_STORE=auto` uses Windows Credential Manager on Windows and file-backed secrets on Linux.
+- The SMTP password is read as `message-automation-hub/smtp-password`.
 - This uses unofficial WhatsApp Web automation. Use a number you can afford to lose.
+
+## Platform Secrets
+
+Windows default:
+
+```text
+MESSAGE_HUB_SECRET_STORE=auto
+```
+
+uses Windows Credential Manager.
+
+Linux default:
+
+```text
+MESSAGE_HUB_SECRET_STORE=auto
+```
+
+uses:
+
+```text
+~/secrets/message-automation-hub/secrets.json
+```
+
+You can force file storage on any platform:
+
+```text
+MESSAGE_HUB_SECRET_STORE=file
+MESSAGE_HUB_SECRET_FILE=/home/opc/secrets/message-automation-hub/secrets.json
+```
+
+Use the same command to save the SMTP app password:
+
+```powershell
+npm run secret:set:smtp
+```
+
+On Linux, that writes to the configured secret file with `0600` permissions.
 
 ## Quality Checks
 
@@ -116,3 +154,7 @@ npm test
 npm run build
 npm audit
 ```
+
+## Cloud VM
+
+See [docs/cloud-ubuntu.md](docs/cloud-ubuntu.md) for running on an Ubuntu VM with file-backed secrets, SSH-tunneled GUI access, and systemd.

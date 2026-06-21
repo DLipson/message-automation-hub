@@ -34,6 +34,8 @@ export class EnvFileSettingsStore {
   private serialize(settings: AppSettings): string {
     return [
       `WHATSAPP_PHONE_NUMBER=${formatEnvValue(settings.whatsappPhoneNumber)}`,
+      `MESSAGE_HUB_SECRET_STORE=${formatEnvValue(settings.messageHubSecretStore)}`,
+      `MESSAGE_HUB_SECRET_FILE=${formatEnvValue(settings.messageHubSecretFile)}`,
       "",
       `SMTP_HOST=${formatEnvValue(settings.smtpHost)}`,
       `SMTP_PORT=${formatEnvValue(settings.smtpPort)}`,

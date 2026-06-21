@@ -30,6 +30,8 @@ describe("EnvFileSettingsStore", () => {
 
     await store.write({
       whatsappPhoneNumber: "12025550108",
+      messageHubSecretStore: "file",
+      messageHubSecretFile: "/home/opc/secrets/message-automation-hub/secrets.json",
       smtpHost: "smtp.gmail.com",
       smtpPort: "465",
       smtpSecure: true,
@@ -47,6 +49,8 @@ describe("EnvFileSettingsStore", () => {
 
     await expect(store.read()).resolves.toEqual({
       whatsappPhoneNumber: "12025550108",
+      messageHubSecretStore: "file",
+      messageHubSecretFile: "/home/opc/secrets/message-automation-hub/secrets.json",
       smtpHost: "smtp.gmail.com",
       smtpPort: "465",
       smtpSecure: true,
