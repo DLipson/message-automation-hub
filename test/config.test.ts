@@ -65,6 +65,10 @@ describe("loadConfig", () => {
       async get() {
         return "secret";
       },
+      async set() {},
+      async delete() {
+        return true;
+      },
     };
 
     await expect(loadSmtpPassword(secretStore)).resolves.toBe("secret");
@@ -74,6 +78,10 @@ describe("loadConfig", () => {
     const secretStore: SecretStore = {
       async get() {
         return null;
+      },
+      async set() {},
+      async delete() {
+        return false;
       },
     };
 

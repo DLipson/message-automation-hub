@@ -5,6 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "tsx src/index.ts",
+    "settings": "tsx src/settings/settings-server.ts",
     "secret:set:smtp": "tsx src/tools/set-smtp-password.ts",
     "build": "tsc --noEmit",
     "test": "vitest run"

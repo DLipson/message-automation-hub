@@ -29,17 +29,41 @@ Personal message automation experiments. The first proof of concept receives Wha
    npm run secret:set:smtp
    ```
 
-5. Run the app:
+5. Open the local settings GUI:
+
+   ```powershell
+   npm run settings
+   ```
+
+   Open the printed `http://127.0.0.1:...` URL.
+
+6. Or run the bot directly:
 
    ```powershell
    npm run dev
    ```
 
-6. When a pairing code appears, open WhatsApp:
+7. When a pairing code appears, open WhatsApp:
 
    ```text
    Linked devices -> Link a device -> Link with phone number instead
    ```
+
+## Settings GUI
+
+```powershell
+npm run settings
+```
+
+The GUI binds to `127.0.0.1` and uses a random token in the URL for the current session.
+
+It can:
+
+- edit non-secret env settings
+- save or delete the SMTP password in Windows Credential Manager
+- send a test email
+- start and stop the bot
+- show bot logs and the WhatsApp pairing code
 
 ## Notes
 
@@ -55,4 +79,5 @@ Personal message automation experiments. The first proof of concept receives Wha
 ```powershell
 npm test
 npm run build
+npm audit
 ```

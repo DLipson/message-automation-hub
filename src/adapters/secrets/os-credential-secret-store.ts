@@ -9,4 +9,8 @@ export class OsCredentialSecretStore implements SecretStore {
   async set(ref: SecretRef, value: string): Promise<void> {
     await keytar.setPassword(ref.service, ref.account, value);
   }
+
+  async delete(ref: SecretRef): Promise<boolean> {
+    return keytar.deletePassword(ref.service, ref.account);
+  }
 }
