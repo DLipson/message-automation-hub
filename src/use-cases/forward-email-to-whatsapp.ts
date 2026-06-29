@@ -23,15 +23,15 @@ export class ForwardEmailToWhatsApp {
     const emails = await this.inbox.fetchUnread();
 
     for (const email of emails) {
-      this.logger.info(
-        `Detected unread email ${email.id} with subject "${email.subject}".`,
-      );
-
       const command = this.parseCommand(email);
 
       if (!command) {
         continue;
       }
+
+      this.logger.info(
+        `Detected command email ${email.id} with subject "${email.subject}".`,
+      );
 
       this.logger.info(
         `Forwarding email ${email.id} to WhatsApp number ${command.phoneNumber}.`,

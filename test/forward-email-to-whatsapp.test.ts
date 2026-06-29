@@ -61,7 +61,7 @@ describe("ForwardEmailToWhatsApp", () => {
     ]);
     expect(inbox.processed).toEqual([email]);
     expect(logger.messages).toEqual([
-      'Detected unread email email-1 with subject "WA: please send".',
+      'Detected command email email-1 with subject "WA: please send".',
       "Forwarding email email-1 to WhatsApp number 12025550108.",
       "Forwarded email email-1 to WhatsApp number 12025550108.",
     ]);
@@ -74,14 +74,16 @@ describe("ForwardEmailToWhatsApp", () => {
     });
     const inbox = new FakeEmailInbox([email]);
     const whatsapp = new FakeWhatsAppSender();
+    const logger = new FakeLogger();
     const forwarder = new ForwardEmailToWhatsApp(inbox, whatsapp, {
       subjectPrefix: "WA:",
-    });
+    }, logger);
 
     await forwarder.processUnread();
 
     expect(whatsapp.sent).toEqual([]);
     expect(inbox.processed).toEqual([]);
+    expect(logger.messages).toEqual([]);
   });
 
   it("does not mark matching email as processed when WhatsApp sending fails", async () => {
