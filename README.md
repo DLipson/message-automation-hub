@@ -158,3 +158,10 @@ npm audit
 ## Cloud VM
 
 See [docs/cloud-ubuntu.md](docs/cloud-ubuntu.md) for running on an Ubuntu VM with file-backed secrets, SSH-tunneled GUI access, and systemd.
+
+For the current Google Cloud VM, generate a fresh settings GUI token and open the IAP tunnels from Windows with:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\scripts\open-vm-gui.ps1
+```
+
