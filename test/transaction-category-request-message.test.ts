@@ -1,4 +1,4 @@
-﻿import { describe, expect, it } from "vitest";
+import { describe, expect, it } from "vitest";
 import {
   buildTransactionCategoryRequestMessage,
 } from "../src/automations/transaction-category-request/message-builder.js";

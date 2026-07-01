@@ -4,6 +4,10 @@ import type { AppLogger } from "../ports/app-logger.js";
 import type { EmailInbox } from "../ports/email-inbox.js";
 import type { EmailSender } from "../ports/email-sender.js";
 import type { WhatsAppSender } from "../ports/whatsapp-sender.js";
+import type {
+  EmailAutomationBatch,
+  EmailAutomationHandler,
+} from "./process-email-automations.js";
 
 const silentLogger: AppLogger = {
   info() {},
@@ -29,7 +33,7 @@ type EmailCommand = {
   ignoredImageCount: number;
 };
 
-export class ForwardEmailToWhatsApp {
+export class ForwardEmailToWhatsApp implements EmailAutomationHandler {
   constructor(
     private readonly inbox: EmailInbox,
     private readonly whatsapp: WhatsAppSender,
@@ -39,30 +43,39 @@ export class ForwardEmailToWhatsApp {
 
   async processUnread(): Promise<void> {
     const emails = await this.inbox.fetchUnread();
-    let sentImage = false;
+    const batch: EmailAutomationBatch = { sentWhatsAppImage: false };
 
     for (const email of emails) {
-      const command = this.parseCommand(email);
-
-      if (!command) {
-        continue;
-      }
-
-      if (command.image && sentImage) {
-        await this.waitBeforeNextImage();
-      }
-
-      this.logger.info(
-        `Detected command email ${email.id} with subject "${email.subject}".`,
-      );
-
-      if (command.image) {
-        await this.forwardImageEmail(email, { ...command, image: command.image });
-        sentImage = true;
-      } else {
-        await this.forwardTextEmail(email, command);
-      }
+      await this.handle(email, batch);
     }
+  }
+
+  async handle(
+    email: InboundEmail,
+    batch: EmailAutomationBatch,
+  ): Promise<boolean> {
+    const command = this.parseCommand(email);
+
+    if (!command) {
+      return false;
+    }
+
+    if (command.image && batch.sentWhatsAppImage) {
+      await this.waitBeforeNextImage();
+    }
+
+    this.logger.info(
+      `Detected command email ${email.id} with subject "${email.subject}".`,
+    );
+
+    if (command.image) {
+      await this.forwardImageEmail(email, { ...command, image: command.image });
+      batch.sentWhatsAppImage = true;
+    } else {
+      await this.forwardTextEmail(email, command);
+    }
+
+    return true;
   }
 
   private async forwardTextEmail(

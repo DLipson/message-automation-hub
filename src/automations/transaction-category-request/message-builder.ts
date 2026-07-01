@@ -1,4 +1,4 @@
-﻿type TransactionRow = {
+type TransactionRow = {
   Date: string;
   Payee: string;
   Outflow: string;
