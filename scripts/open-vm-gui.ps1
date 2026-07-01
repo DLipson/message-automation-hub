@@ -1,7 +1,7 @@
 param(
   [string]$ProjectId = "project-f57c5350-09b6-46d6-957",
-  [string]$Zone = "us-central1-c",
-  [string]$Instance = "message-hub-1",
+  [string]$Zone = "us-central1-a",
+  [string]$Instance = "message-hub-2",
   [string]$VmUser = "dovid",
   [int]$SshPort = 2222,
   [int]$GuiPort = 8787,
