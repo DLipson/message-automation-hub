@@ -21,6 +21,9 @@ describe("EnvFileSettingsStore", () => {
       smtpHost: "smtp.gmail.com",
       smtpPort: "465",
       smtpSecure: true,
+      transactionCategoryRequestEnabled: false,
+      transactionCategoryRequestSubjectPrefix: "TXCAT:",
+      transactionCategoryRequestRecipientPhoneNumber: "",
     });
   });
 
@@ -41,6 +44,9 @@ describe("EnvFileSettingsStore", () => {
       emailToWhatsappEnabled: true,
       emailToWhatsappSubjectPrefix: "WA:",
       emailToWhatsappPollSeconds: "30",
+      transactionCategoryRequestEnabled: true,
+      transactionCategoryRequestSubjectPrefix: "TXCAT:",
+      transactionCategoryRequestRecipientPhoneNumber: "972501234567",
       imapHost: "imap.gmail.com",
       imapPort: "993",
       imapSecure: true,
@@ -60,6 +66,9 @@ describe("EnvFileSettingsStore", () => {
       emailToWhatsappEnabled: true,
       emailToWhatsappSubjectPrefix: "WA:",
       emailToWhatsappPollSeconds: "30",
+      transactionCategoryRequestEnabled: true,
+      transactionCategoryRequestSubjectPrefix: "TXCAT:",
+      transactionCategoryRequestRecipientPhoneNumber: "972501234567",
       imapHost: "imap.gmail.com",
       imapPort: "993",
       imapSecure: true,

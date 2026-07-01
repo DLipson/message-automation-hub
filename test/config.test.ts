@@ -45,10 +45,15 @@ describe("loadConfig", () => {
         subjectPrefix: "WA:",
         pollIntervalMs: 30000,
       },
+      transactionCategoryRequest: {
+        enabled: false,
+        subjectPrefix: "TXCAT:",
+        recipientPhoneNumber: "",
+      },
     });
   });
 
-  it("loads optional email to WhatsApp settings", () => {
+  it("loads optional email automation settings", () => {
     expect(
       loadConfig(
         {
@@ -60,6 +65,10 @@ describe("loadConfig", () => {
           IMAP_PORT: "993",
           IMAP_SECURE: "true",
           IMAP_USER: "reader@example.com",
+          TRANSACTION_CATEGORY_REQUEST_ENABLED: "true",
+          TRANSACTION_CATEGORY_REQUEST_SUBJECT_PREFIX: "CAT:",
+          TRANSACTION_CATEGORY_REQUEST_RECIPIENT_PHONE_NUMBER:
+            "+972 50-123-4567",
         },
         { smtpPassword: "secret" },
       ),
@@ -76,7 +85,23 @@ describe("loadConfig", () => {
         subjectPrefix: "SEND:",
         pollIntervalMs: 10000,
       },
+      transactionCategoryRequest: {
+        enabled: true,
+        subjectPrefix: "CAT:",
+        recipientPhoneNumber: "972501234567",
+      },
     });
+  });
+
+  it("requires a transaction category recipient when the automation is enabled", () => {
+    expect(() =>
+      loadConfig({
+        ...validEnv,
+        TRANSACTION_CATEGORY_REQUEST_ENABLED: "true",
+      }, { smtpPassword: "secret" }),
+    ).toThrow(
+      "Missing required environment variable: TRANSACTION_CATEGORY_REQUEST_RECIPIENT_PHONE_NUMBER",
+    );
   });
 
   it("fails fast when a required setting is missing", () => {

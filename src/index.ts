@@ -1,3 +1,4 @@
+import { RequestTransactionCategoryFromEmail } from "./automations/transaction-category-request/request-from-email.js";
 import { ImapEmailInbox } from "./adapters/email/imap-email-inbox.js";
 import { SmtpEmailSender } from "./adapters/email/smtp-email-sender.js";
 import { ConsoleAppLogger } from "./adapters/logging/console-app-logger.js";
@@ -7,6 +8,8 @@ import { loadConfig, loadRuntimeEnv, loadSmtpPassword } from "./config.js";
 import { EmailToWhatsAppPoller } from "./email-to-whatsapp-poller.js";
 import { ForwardEmailToWhatsApp } from "./use-cases/forward-email-to-whatsapp.js";
 import { ForwardMessageToEmail } from "./use-cases/forward-message-to-email.js";
+import type { EmailAutomationHandler } from "./use-cases/process-email-automations.js";
+import { ProcessEmailAutomations } from "./use-cases/process-email-automations.js";
 
 loadRuntimeEnv();
 
@@ -27,20 +30,35 @@ whatsapp.onMessage(message => forwardMessageToEmail.handle(message));
 
 await whatsapp.start();
 
-if (config.emailToWhatsapp.enabled) {
+const emailAutomationHandlers: EmailAutomationHandler[] = [];
+
+if (config.emailToWhatsapp.enabled || config.transactionCategoryRequest.enabled) {
   const inbox = new ImapEmailInbox(config.imap);
-  const forwardEmailToWhatsApp = new ForwardEmailToWhatsApp(inbox, whatsapp, {
-    subjectPrefix: config.emailToWhatsapp.subjectPrefix,
-    extraImageNotification: {
-      sender: emailSender,
-      from: config.email.from,
-    },
-  }, logger);
+
+  if (config.emailToWhatsapp.enabled) {
+    emailAutomationHandlers.push(new ForwardEmailToWhatsApp(inbox, whatsapp, {
+      subjectPrefix: config.emailToWhatsapp.subjectPrefix,
+      extraImageNotification: {
+        sender: emailSender,
+        from: config.email.from,
+      },
+    }, logger));
+  }
+
+  if (config.transactionCategoryRequest.enabled) {
+    emailAutomationHandlers.push(new RequestTransactionCategoryFromEmail(
+      inbox,
+      whatsapp,
+      config.transactionCategoryRequest,
+      logger,
+    ));
+  }
+
   const poller = new EmailToWhatsAppPoller(
-    forwardEmailToWhatsApp,
+    new ProcessEmailAutomations(inbox, emailAutomationHandlers),
     config.emailToWhatsapp.pollIntervalMs,
   );
 
   poller.start();
-  console.log("Email to WhatsApp forwarding is enabled.");
+  console.log("Email automation polling is enabled.");
 }

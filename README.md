@@ -103,6 +103,32 @@ Rules:
 - if one email has multiple image attachments, only the first image is sent and the sender receives a notice email when possible
 - the email is marked read only after the WhatsApp send succeeds
 
+## Transaction Category Requests
+
+The bot can read a transaction CSV attached to an email and send a WhatsApp message asking a configured recipient what each transaction was for.
+
+Enable it in the settings GUI:
+
+```text
+Transaction category request: enabled
+Transaction category prefix: TXCAT:
+Transaction category recipient: 972501234567
+```
+
+Send an email like:
+
+```text
+Subject: TXCAT: request
+```
+
+Attach a CSV with these columns:
+
+```text
+Date,Payee,Outflow,Inflow
+```
+
+The bot sends a WhatsApp message to the configured transaction category recipient. The amount uses `Outflow` when it is present and not `₪0.00`; otherwise it uses `Inflow` when it is present and not `₪0.00`. The email is marked read only after the WhatsApp send succeeds.
+
 ## WhatsApp to Email Media
 
 Incoming WhatsApp image media is forwarded as email attachments. The app attaches up to five images from one WhatsApp message. If more images are present, the email body includes a note that additional images were not forwarded. Video is not forwarded.

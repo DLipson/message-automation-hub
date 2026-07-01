@@ -13,6 +13,9 @@ export type AppSettings = {
   emailToWhatsappEnabled: boolean;
   emailToWhatsappSubjectPrefix: string;
   emailToWhatsappPollSeconds: string;
+  transactionCategoryRequestEnabled: boolean;
+  transactionCategoryRequestSubjectPrefix: string;
+  transactionCategoryRequestRecipientPhoneNumber: string;
   imapHost: string;
   imapPort: string;
   imapSecure: boolean;
@@ -32,6 +35,9 @@ export const emptyAppSettings: AppSettings = {
   emailToWhatsappEnabled: false,
   emailToWhatsappSubjectPrefix: "WA:",
   emailToWhatsappPollSeconds: "30",
+  transactionCategoryRequestEnabled: false,
+  transactionCategoryRequestSubjectPrefix: "TXCAT:",
+  transactionCategoryRequestRecipientPhoneNumber: "",
   imapHost: "imap.gmail.com",
   imapPort: "993",
   imapSecure: true,
@@ -52,6 +58,13 @@ export function appSettingsToEnv(settings: AppSettings): Record<string, string> 
     EMAIL_TO_WHATSAPP_ENABLED: String(settings.emailToWhatsappEnabled),
     EMAIL_TO_WHATSAPP_SUBJECT_PREFIX: settings.emailToWhatsappSubjectPrefix,
     EMAIL_TO_WHATSAPP_POLL_SECONDS: settings.emailToWhatsappPollSeconds,
+    TRANSACTION_CATEGORY_REQUEST_ENABLED: String(
+      settings.transactionCategoryRequestEnabled,
+    ),
+    TRANSACTION_CATEGORY_REQUEST_SUBJECT_PREFIX:
+      settings.transactionCategoryRequestSubjectPrefix,
+    TRANSACTION_CATEGORY_REQUEST_RECIPIENT_PHONE_NUMBER:
+      settings.transactionCategoryRequestRecipientPhoneNumber,
     IMAP_HOST: settings.imapHost,
     IMAP_PORT: settings.imapPort,
     IMAP_SECURE: String(settings.imapSecure),
@@ -83,6 +96,15 @@ export function envToAppSettings(
     emailToWhatsappPollSeconds:
       env.EMAIL_TO_WHATSAPP_POLL_SECONDS ??
       emptyAppSettings.emailToWhatsappPollSeconds,
+    transactionCategoryRequestEnabled:
+      (env.TRANSACTION_CATEGORY_REQUEST_ENABLED ?? "false").toLowerCase() ===
+      "true",
+    transactionCategoryRequestSubjectPrefix:
+      env.TRANSACTION_CATEGORY_REQUEST_SUBJECT_PREFIX ??
+      emptyAppSettings.transactionCategoryRequestSubjectPrefix,
+    transactionCategoryRequestRecipientPhoneNumber:
+      env.TRANSACTION_CATEGORY_REQUEST_RECIPIENT_PHONE_NUMBER ??
+      emptyAppSettings.transactionCategoryRequestRecipientPhoneNumber,
     imapHost: env.IMAP_HOST ?? emptyAppSettings.imapHost,
     imapPort: env.IMAP_PORT ?? emptyAppSettings.imapPort,
     imapSecure: (env.IMAP_SECURE ?? "true").toLowerCase() === "true",
@@ -126,6 +148,12 @@ export function settingsToEmailConfig(
       enabled: settings.emailToWhatsappEnabled,
       subjectPrefix: settings.emailToWhatsappSubjectPrefix,
       pollIntervalMs: Number(settings.emailToWhatsappPollSeconds) * 1000,
+    },
+    transactionCategoryRequest: {
+      enabled: settings.transactionCategoryRequestEnabled,
+      subjectPrefix: settings.transactionCategoryRequestSubjectPrefix,
+      recipientPhoneNumber:
+        settings.transactionCategoryRequestRecipientPhoneNumber.replace(/\D/g, ""),
     },
   };
 }

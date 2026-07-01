@@ -1,10 +1,12 @@
-import { ForwardEmailToWhatsApp } from "./use-cases/forward-email-to-whatsapp.js";
+type UnreadEmailProcessor = {
+  processUnread(): Promise<void>;
+};
 
 export class EmailToWhatsAppPoller {
   private timer: NodeJS.Timeout | undefined;
 
   constructor(
-    private readonly forwarder: ForwardEmailToWhatsApp,
+    private readonly processor: UnreadEmailProcessor,
     private readonly intervalMs: number,
   ) {}
 
@@ -30,10 +32,10 @@ export class EmailToWhatsAppPoller {
 
   private async poll(): Promise<void> {
     try {
-      await this.forwarder.processUnread();
+      await this.processor.processUnread();
     } catch (error) {
       console.error(
-        `Email to WhatsApp poll failed: ${
+        `Email automation poll failed: ${
           error instanceof Error ? error.message : "Unknown error"
         }`,
       );

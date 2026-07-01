@@ -515,6 +515,21 @@ function settingsPage(pageToken: string): string {
                   <input name="emailToWhatsappPollSeconds" inputmode="numeric" autocomplete="off">
                 </label>
                 <label>
+                  Transaction category request
+                  <select name="transactionCategoryRequestEnabled">
+                    <option value="false">disabled</option>
+                    <option value="true">enabled</option>
+                  </select>
+                </label>
+                <label>
+                  Transaction category prefix
+                  <input name="transactionCategoryRequestSubjectPrefix" autocomplete="off">
+                </label>
+                <label>
+                  Transaction category recipient
+                  <input name="transactionCategoryRequestRecipientPhoneNumber" autocomplete="off">
+                </label>
+                <label>
                   IMAP host
                   <input name="imapHost" autocomplete="off">
                 </label>
@@ -623,6 +638,9 @@ function settingsPage(pageToken: string): string {
           emailToWhatsappEnabled: form.emailToWhatsappEnabled.value === "true",
           emailToWhatsappSubjectPrefix: form.emailToWhatsappSubjectPrefix.value.trim(),
           emailToWhatsappPollSeconds: form.emailToWhatsappPollSeconds.value.trim(),
+          transactionCategoryRequestEnabled: form.transactionCategoryRequestEnabled.value === "true",
+          transactionCategoryRequestSubjectPrefix: form.transactionCategoryRequestSubjectPrefix.value.trim(),
+          transactionCategoryRequestRecipientPhoneNumber: form.transactionCategoryRequestRecipientPhoneNumber.value.trim(),
           imapHost: form.imapHost.value.trim(),
           imapPort: form.imapPort.value.trim(),
           imapSecure: form.imapSecure.value === "true",
@@ -637,7 +655,7 @@ function settingsPage(pageToken: string): string {
         renderBot(state.bot);
 
         for (const [key, value] of Object.entries(state.settings)) {
-          if (key === "smtpSecure" || key === "emailToWhatsappEnabled" || key === "imapSecure") {
+          if (key === "smtpSecure" || key === "emailToWhatsappEnabled" || key === "transactionCategoryRequestEnabled" || key === "imapSecure") {
             form[key].value = String(value);
           } else {
             form[key].value = value ?? "";

@@ -37,6 +37,11 @@ export type AppConfig = {
     subjectPrefix: string;
     pollIntervalMs: number;
   };
+  transactionCategoryRequest: {
+    enabled: boolean;
+    subjectPrefix: string;
+    recipientPhoneNumber: string;
+  };
 };
 
 export function loadRuntimeEnv(env = process.env): void {
@@ -67,6 +72,9 @@ export function loadConfig(
   env: NodeJS.ProcessEnv,
   secrets: { smtpPassword: string },
 ): AppConfig {
+  const transactionCategoryRequestEnabled =
+    readOptionalBoolean(env, "TRANSACTION_CATEGORY_REQUEST_ENABLED") ?? false;
+
   return {
     whatsapp: {
       phoneNumber: requireEnv(env, "WHATSAPP_PHONE_NUMBER"),
@@ -94,6 +102,16 @@ export function loadConfig(
       subjectPrefix: optionalEnv(env, "EMAIL_TO_WHATSAPP_SUBJECT_PREFIX") ?? "WA:",
       pollIntervalMs:
         (readOptionalPort(env, "EMAIL_TO_WHATSAPP_POLL_SECONDS") ?? 30) * 1000,
+    },
+    transactionCategoryRequest: {
+      enabled: transactionCategoryRequestEnabled,
+      subjectPrefix:
+        optionalEnv(env, "TRANSACTION_CATEGORY_REQUEST_SUBJECT_PREFIX") ?? "TXCAT:",
+      recipientPhoneNumber: readOptionalPhoneNumber(
+        env,
+        "TRANSACTION_CATEGORY_REQUEST_RECIPIENT_PHONE_NUMBER",
+        transactionCategoryRequestEnabled,
+      ),
     },
   };
 }
@@ -174,4 +192,24 @@ function readOptionalBoolean(
   }
 
   throw new Error(`${key} must be true or false`);
+}
+
+function readOptionalPhoneNumber(
+  env: NodeJS.ProcessEnv,
+  key: string,
+  required: boolean,
+): string {
+  const rawValue = required ? requireEnv(env, key) : optionalEnv(env, key);
+
+  if (!rawValue) {
+    return "";
+  }
+
+  const phoneNumber = rawValue.replace(/\D/g, "");
+
+  if (!phoneNumber) {
+    throw new Error(`${key} must contain at least one digit`);
+  }
+
+  return phoneNumber;
 }
