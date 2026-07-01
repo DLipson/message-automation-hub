@@ -100,7 +100,7 @@ Rules:
 - punctuation and spaces are removed from the phone number
 - one image attachment can be sent with the WhatsApp message
 - if multiple command emails contain images, image sends are spaced by a random 3-5 minute delay
-- if one email has multiple image attachments, only the first image is sent
+- if one email has multiple image attachments, only the first image is sent and the sender receives a notice email when possible
 - the email is marked read only after the WhatsApp send succeeds
 
 ## WhatsApp to Email Media

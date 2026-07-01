@@ -2,6 +2,7 @@ import type { InboundEmail } from "../domain/email.js";
 import { isImageAttachment, type MediaAttachment } from "../domain/media.js";
 import type { AppLogger } from "../ports/app-logger.js";
 import type { EmailInbox } from "../ports/email-inbox.js";
+import type { EmailSender } from "../ports/email-sender.js";
 import type { WhatsAppSender } from "../ports/whatsapp-sender.js";
 
 const silentLogger: AppLogger = {
@@ -15,6 +16,10 @@ export type ForwardEmailToWhatsAppOptions = {
   subjectPrefix: string;
   imageDelayMs?: () => number;
   wait?: (milliseconds: number) => Promise<void>;
+  extraImageNotification?: {
+    sender: EmailSender;
+    from: string;
+  };
 };
 
 type EmailCommand = {
@@ -99,10 +104,46 @@ export class ForwardEmailToWhatsApp {
       image: command.image,
     });
     await this.inbox.markProcessed(email);
+    await this.notifyExtraImagesIgnored(email, command);
 
     this.logger.info(
       `Forwarded image email ${email.id} to WhatsApp number ${command.phoneNumber}.`,
     );
+  }
+
+  private async notifyExtraImagesIgnored(
+    email: InboundEmail,
+    command: EmailCommand,
+  ): Promise<void> {
+    if (command.ignoredImageCount === 0) {
+      return;
+    }
+
+    if (!this.options.extraImageNotification || !email.from) {
+      return;
+    }
+
+    try {
+      await this.options.extraImageNotification.sender.send({
+        from: this.options.extraImageNotification.from,
+        to: email.from,
+        subject: "Only one image was sent to WhatsApp",
+        text: [
+          `Your email "${email.subject}" had ${command.ignoredImageCount + 1} image attachments.`,
+          "",
+          "Message Automation Hub sent the first image to WhatsApp and skipped the remaining image attachment(s).",
+        ].join("\n"),
+      });
+      this.logger.info(
+        `Sent extra-image notice for email ${email.id} to ${email.from}.`,
+      );
+    } catch (error) {
+      this.logger.info(
+        `Could not send extra-image notice for email ${email.id}: ${
+          error instanceof Error ? error.message : "Unknown error"
+        }`,
+      );
+    }
   }
 
   private parseCommand(email: InboundEmail): EmailCommand | null {

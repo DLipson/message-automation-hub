@@ -31,6 +31,10 @@ if (config.emailToWhatsapp.enabled) {
   const inbox = new ImapEmailInbox(config.imap);
   const forwardEmailToWhatsApp = new ForwardEmailToWhatsApp(inbox, whatsapp, {
     subjectPrefix: config.emailToWhatsapp.subjectPrefix,
+    extraImageNotification: {
+      sender: emailSender,
+      from: config.email.from,
+    },
   }, logger);
   const poller = new EmailToWhatsAppPoller(
     forwardEmailToWhatsApp,

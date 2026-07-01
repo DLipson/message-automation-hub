@@ -3,6 +3,7 @@ import type { InboundEmail } from "../src/domain/email.js";
 import type { MediaAttachment } from "../src/domain/media.js";
 import type { AppLogger } from "../src/ports/app-logger.js";
 import type { EmailInbox } from "../src/ports/email-inbox.js";
+import type { EmailMessage, EmailSender } from "../src/ports/email-sender.js";
 import type {
   WhatsAppDirectImage,
   WhatsAppDirectMessage,
@@ -21,6 +22,14 @@ class FakeEmailInbox implements EmailInbox {
 
   async markProcessed(email: InboundEmail): Promise<void> {
     this.processed.push(email);
+  }
+}
+
+class FakeEmailSender implements EmailSender {
+  readonly sent: EmailMessage[] = [];
+
+  async send(message: EmailMessage): Promise<void> {
+    this.sent.push(message);
   }
 }
 
@@ -99,6 +108,88 @@ describe("ForwardEmailToWhatsApp", () => {
       },
     ]);
     expect(inbox.processed).toEqual([email]);
+  });
+
+  it("emails the sender when extra image attachments are skipped", async () => {
+    const firstImage = imageAttachment("first.jpg");
+    const secondImage = imageAttachment("second.jpg");
+    const email = emailCommand({
+      from: "Sender <sender@example.com>",
+      subject: "WA: image",
+      text: ["To: 12025550108", "", "Nice view"].join("\n"),
+      attachments: [firstImage, secondImage],
+    });
+    const inbox = new FakeEmailInbox([email]);
+    const whatsapp = new FakeWhatsAppSender();
+    const notificationSender = new FakeEmailSender();
+    const logger = new FakeLogger();
+    const forwarder = new ForwardEmailToWhatsApp(inbox, whatsapp, {
+      subjectPrefix: "WA:",
+      extraImageNotification: {
+        sender: notificationSender,
+        from: "bot@example.com",
+      },
+    }, logger);
+
+    await forwarder.processUnread();
+
+    expect(whatsapp.sentImages).toEqual([
+      {
+        phoneNumber: "12025550108",
+        text: "Nice view",
+        image: firstImage,
+      },
+    ]);
+    expect(notificationSender.sent).toEqual([
+      {
+        from: "bot@example.com",
+        to: "Sender <sender@example.com>",
+        subject: "Only one image was sent to WhatsApp",
+        text: [
+          'Your email "WA: image" had 2 image attachments.',
+          "",
+          "Message Automation Hub sent the first image to WhatsApp and skipped the remaining image attachment(s).",
+        ].join("\n"),
+      },
+    ]);
+    expect(logger.messages).toContain(
+      "Email email-1 has 1 extra image attachment(s); sending the first image only.",
+    );
+    expect(logger.messages).toContain(
+      "Sent extra-image notice for email email-1 to Sender <sender@example.com>.",
+    );
+  });
+
+  it("does not resend WhatsApp image when extra-image notification fails", async () => {
+    const email = emailCommand({
+      from: "sender@example.com",
+      subject: "WA: image",
+      text: ["To: 12025550108", "", "Nice view"].join("\n"),
+      attachments: [imageAttachment("first.jpg"), imageAttachment("second.jpg")],
+    });
+    const inbox = new FakeEmailInbox([email]);
+    const whatsapp = new FakeWhatsAppSender();
+    const logger = new FakeLogger();
+    const failingNotifier: EmailSender = {
+      async send() {
+        throw new Error("smtp unavailable");
+      },
+    };
+    const forwarder = new ForwardEmailToWhatsApp(inbox, whatsapp, {
+      subjectPrefix: "WA:",
+      extraImageNotification: {
+        sender: failingNotifier,
+        from: "bot@example.com",
+      },
+    }, logger);
+
+    await forwarder.processUnread();
+
+    expect(whatsapp.sentImages).toHaveLength(1);
+    expect(inbox.processed).toEqual([email]);
+    expect(logger.messages).toContain(
+      "Could not send extra-image notice for email email-1: smtp unavailable",
+    );
   });
 
   it("waits between multiple image emails", async () => {
