@@ -26,6 +26,13 @@ export class SmtpEmailSender implements EmailSender {
   }
 
   async send(message: EmailMessage): Promise<void> {
-    await this.transporter.sendMail(message);
+    await this.transporter.sendMail({
+      ...message,
+      attachments: message.attachments?.map(attachment => ({
+        filename: attachment.filename,
+        contentType: attachment.contentType,
+        content: attachment.content,
+      })),
+    });
   }
 }

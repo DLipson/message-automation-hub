@@ -1,19 +1,37 @@
 import pkg from "whatsapp-web.js";
 import { platform } from "node:os";
 import type { InboundMessage } from "../../domain/message.js";
+import type { MediaAttachment } from "../../domain/media.js";
 import type {
   InboundChannel,
   InboundMessageHandler,
 } from "../../ports/inbound-channel.js";
 import type {
+  WhatsAppDirectImage,
   WhatsAppDirectMessage,
   WhatsAppSender,
 } from "../../ports/whatsapp-sender.js";
 
-const { Client, LocalAuth } = pkg;
+const { Client, LocalAuth, MessageMedia } = pkg;
 
 export type WhatsAppWebChannelConfig = {
   phoneNumber: string;
+};
+
+type RawWhatsAppMedia = {
+  mimetype: string;
+  data: string;
+  filename?: string | null;
+};
+
+type RawWhatsAppMessage = {
+  id: { _serialized: string };
+  from: string;
+  body: string;
+  timestamp: number;
+  hasMedia?: boolean;
+  downloadMedia?: () => Promise<RawWhatsAppMedia | undefined>;
+  _data?: { notifyName?: string };
 };
 
 export class WhatsAppWebChannel implements InboundChannel, WhatsAppSender {
@@ -50,7 +68,7 @@ export class WhatsAppWebChannel implements InboundChannel, WhatsAppSender {
         return;
       }
 
-      await this.handler(this.toInboundMessage(rawMessage));
+      await this.handler(await this.toInboundMessage(rawMessage));
     });
 
     await this.client.initialize();
@@ -63,16 +81,25 @@ export class WhatsAppWebChannel implements InboundChannel, WhatsAppSender {
     );
   }
 
-  private toInboundMessage(rawMessage: {
-    id: { _serialized: string };
-    from: string;
-    body: string;
-    timestamp: number;
-    _data?: { notifyName?: string };
-  }): InboundMessage {
+  async sendImage(message: WhatsAppDirectImage): Promise<void> {
+    const media = new MessageMedia(
+      message.image.contentType,
+      message.image.content.toString("base64"),
+      message.image.filename,
+    );
+
+    await this.client.sendMessage(`${message.phoneNumber}@c.us`, media, {
+      caption: message.text,
+    });
+  }
+
+  private async toInboundMessage(
+    rawMessage: RawWhatsAppMessage,
+  ): Promise<InboundMessage> {
     const from = rawMessage._data?.notifyName
       ? { id: rawMessage.from, displayName: rawMessage._data.notifyName }
       : { id: rawMessage.from };
+    const attachments = await this.attachmentsFor(rawMessage);
 
     return {
       id: rawMessage.id._serialized,
@@ -80,7 +107,28 @@ export class WhatsAppWebChannel implements InboundChannel, WhatsAppSender {
       from,
       text: rawMessage.body,
       receivedAt: new Date(rawMessage.timestamp * 1000),
+      ...(attachments.length > 0 ? { attachments } : {}),
     };
+  }
+
+  private async attachmentsFor(
+    rawMessage: RawWhatsAppMessage,
+  ): Promise<MediaAttachment[]> {
+    if (!rawMessage.hasMedia || !rawMessage.downloadMedia) {
+      return [];
+    }
+
+    const media = await rawMessage.downloadMedia();
+
+    if (!media?.mimetype.toLowerCase().startsWith("image/")) {
+      return [];
+    }
+
+    return [{
+      content: Buffer.from(media.data, "base64"),
+      contentType: media.mimetype,
+      ...(media.filename ? { filename: media.filename } : {}),
+    }];
   }
 }
 

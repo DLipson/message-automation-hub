@@ -1,6 +1,8 @@
 import { ImapFlow } from "imapflow";
 import { simpleParser } from "mailparser";
+import type { Attachment } from "mailparser";
 import type { InboundEmail } from "../../domain/email.js";
+import type { MediaAttachment } from "../../domain/media.js";
 import type { EmailInbox } from "../../ports/email-inbox.js";
 
 export type ImapEmailInboxConfig = {
@@ -41,6 +43,7 @@ export class ImapEmailInbox implements EmailInbox {
         }
 
         const parsed = await simpleParser(message.source);
+        const attachments = parsed.attachments.map(toMediaAttachment);
 
         const email: FetchedEmail = {
           id: String(message.uid),
@@ -48,6 +51,7 @@ export class ImapEmailInbox implements EmailInbox {
           subject: parsed.subject ?? message.envelope?.subject ?? "",
           text: parsed.text ?? "",
           receivedAt: parsed.date ?? new Date(),
+          ...(attachments.length > 0 ? { attachments } : {}),
         };
 
         if (parsed.from?.text) {
@@ -94,4 +98,12 @@ export class ImapEmailInbox implements EmailInbox {
       logger: false,
     });
   }
+}
+
+function toMediaAttachment(attachment: Attachment): MediaAttachment {
+  return {
+    content: attachment.content,
+    contentType: attachment.contentType,
+    ...(attachment.filename ? { filename: attachment.filename } : {}),
+  };
 }

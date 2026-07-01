@@ -1,8 +1,10 @@
 import { describe, expect, it } from "vitest";
 import type { InboundEmail } from "../src/domain/email.js";
+import type { MediaAttachment } from "../src/domain/media.js";
 import type { AppLogger } from "../src/ports/app-logger.js";
 import type { EmailInbox } from "../src/ports/email-inbox.js";
 import type {
+  WhatsAppDirectImage,
   WhatsAppDirectMessage,
   WhatsAppSender,
 } from "../src/ports/whatsapp-sender.js";
@@ -24,9 +26,14 @@ class FakeEmailInbox implements EmailInbox {
 
 class FakeWhatsAppSender implements WhatsAppSender {
   readonly sent: WhatsAppDirectMessage[] = [];
+  readonly sentImages: WhatsAppDirectImage[] = [];
 
   async sendMessage(message: WhatsAppDirectMessage): Promise<void> {
     this.sent.push(message);
+  }
+
+  async sendImage(message: WhatsAppDirectImage): Promise<void> {
+    this.sentImages.push(message);
   }
 }
 
@@ -59,12 +66,70 @@ describe("ForwardEmailToWhatsApp", () => {
         text: "Can you call me?",
       },
     ]);
+    expect(whatsapp.sentImages).toEqual([]);
     expect(inbox.processed).toEqual([email]);
     expect(logger.messages).toEqual([
       'Detected command email email-1 with subject "WA: please send".',
       "Forwarding email email-1 to WhatsApp number 12025550108.",
       "Forwarded email email-1 to WhatsApp number 12025550108.",
     ]);
+  });
+
+  it("sends one image attachment from a matching email", async () => {
+    const image = imageAttachment("photo.jpg");
+    const email = emailCommand({
+      subject: "WA: image",
+      text: ["To: 12025550108", "", "Nice view"].join("\n"),
+      attachments: [image],
+    });
+    const inbox = new FakeEmailInbox([email]);
+    const whatsapp = new FakeWhatsAppSender();
+    const forwarder = new ForwardEmailToWhatsApp(inbox, whatsapp, {
+      subjectPrefix: "WA:",
+    });
+
+    await forwarder.processUnread();
+
+    expect(whatsapp.sent).toEqual([]);
+    expect(whatsapp.sentImages).toEqual([
+      {
+        phoneNumber: "12025550108",
+        text: "Nice view",
+        image,
+      },
+    ]);
+    expect(inbox.processed).toEqual([email]);
+  });
+
+  it("waits between multiple image emails", async () => {
+    const firstEmail = emailCommand({
+      id: "email-1",
+      subject: "WA: first image",
+      text: ["To: 12025550108", "", "First"].join("\n"),
+      attachments: [imageAttachment("first.jpg")],
+    });
+    const secondEmail = emailCommand({
+      id: "email-2",
+      subject: "WA: second image",
+      text: ["To: 12025550108", "", "Second"].join("\n"),
+      attachments: [imageAttachment("second.jpg")],
+    });
+    const waits: number[] = [];
+    const inbox = new FakeEmailInbox([firstEmail, secondEmail]);
+    const whatsapp = new FakeWhatsAppSender();
+    const forwarder = new ForwardEmailToWhatsApp(inbox, whatsapp, {
+      subjectPrefix: "WA:",
+      imageDelayMs: () => 240_000,
+      wait: async milliseconds => {
+        waits.push(milliseconds);
+      },
+    });
+
+    await forwarder.processUnread();
+
+    expect(waits).toEqual([240_000]);
+    expect(whatsapp.sentImages).toHaveLength(2);
+    expect(inbox.processed).toEqual([firstEmail, secondEmail]);
   });
 
   it("ignores unread emails with a different subject prefix", async () => {
@@ -82,6 +147,7 @@ describe("ForwardEmailToWhatsApp", () => {
     await forwarder.processUnread();
 
     expect(whatsapp.sent).toEqual([]);
+    expect(whatsapp.sentImages).toEqual([]);
     expect(inbox.processed).toEqual([]);
     expect(logger.messages).toEqual([]);
   });
@@ -96,6 +162,7 @@ describe("ForwardEmailToWhatsApp", () => {
       async sendMessage() {
         throw new Error("send failed");
       },
+      async sendImage() {},
     };
     const forwarder = new ForwardEmailToWhatsApp(inbox, whatsapp, {
       subjectPrefix: "WA:",
@@ -115,5 +182,13 @@ function emailCommand(overrides: Partial<InboundEmail>): InboundEmail {
     text: "",
     receivedAt: new Date("2026-06-21T08:00:00.000Z"),
     ...overrides,
+  };
+}
+
+function imageAttachment(filename: string): MediaAttachment {
+  return {
+    filename,
+    contentType: "image/jpeg",
+    content: Buffer.from("image"),
   };
 }

@@ -1,3 +1,5 @@
+import type { MediaAttachment } from "./media.js";
+
 export type MessageChannel = "whatsapp" | "email" | "telegram";
 
 export type ContactRef = {
@@ -11,4 +13,5 @@ export type InboundMessage = {
   from: ContactRef;
   text: string;
   receivedAt: Date;
+  attachments?: MediaAttachment[];
 };
