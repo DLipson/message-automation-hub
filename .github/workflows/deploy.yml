@@ -1,0 +1,100 @@
+name: Deploy
+
+on:
+  push:
+    branches: [master]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci
+      - run: npm test
+      - run: npm run build
+
+  deploy:
+    needs: verify
+    if: vars.GCP_WORKLOAD_IDENTITY_PROVIDER != '' && vars.GCP_SERVICE_ACCOUNT != '' && vars.GCP_PROJECT_ID != '' && vars.GCP_ZONE != '' && vars.GCP_INSTANCE != ''
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - id: auth
+        uses: google-github-actions/auth@v3
+        with:
+          workload_identity_provider: ${{ vars.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ vars.GCP_SERVICE_ACCOUNT }}
+          project_id: ${{ vars.GCP_PROJECT_ID }}
+
+      - uses: google-github-actions/setup-gcloud@v3
+
+      - name: Deploy through IAP
+        env:
+          GCP_PROJECT_ID: ${{ vars.GCP_PROJECT_ID }}
+          GCP_ZONE: ${{ vars.GCP_ZONE }}
+          GCP_INSTANCE: ${{ vars.GCP_INSTANCE }}
+          REPO_URL: https://github.com/${{ github.repository }}.git
+        run: |
+          gcloud compute ssh "$GCP_INSTANCE" \
+            --project "$GCP_PROJECT_ID" \
+            --zone "$GCP_ZONE" \
+            --tunnel-through-iap \
+            --quiet \
+            --command "sudo env REPO_URL='$REPO_URL' bash -s" <<'REMOTE'
+          set -euo pipefail
+
+          service="message-automation-hub"
+          app_dir="/opt/message-automation-hub"
+          repo_url="${REPO_URL:?REPO_URL is required}"
+
+          service_user="$(systemctl show -p User --value "${service}.service" 2>/dev/null || true)"
+          if [ -z "$service_user" ]; then
+            service_user="$(stat -c '%U' "$app_dir" 2>/dev/null || echo root)"
+          fi
+
+          systemctl stop "$service" || true
+          mkdir -p "$app_dir"
+          cd "$app_dir"
+
+          if [ ! -d .git ]; then
+            git init
+            git remote add origin "$repo_url"
+          elif ! git remote get-url origin >/dev/null 2>&1; then
+            git remote add origin "$repo_url"
+          else
+            git remote set-url origin "$repo_url"
+          fi
+
+          git fetch origin master
+          git checkout -B master FETCH_HEAD
+          git reset --hard FETCH_HEAD
+
+          npm ci --include=dev --no-audit --no-fund
+          npm run build
+
+          rm -f .wwebjs_auth/session/SingletonLock \
+            .wwebjs_auth/session/SingletonSocket \
+            .wwebjs_auth/session/SingletonCookie
+
+          if [ "$service_user" != "root" ]; then
+            chown -R "${service_user}:${service_user}" "$app_dir"
+          fi
+
+          systemctl reset-failed "$service" || true
+          systemctl start "$service"
+          systemctl --no-pager --full status "$service"
+          REMOTE
