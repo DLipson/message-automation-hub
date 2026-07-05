@@ -1,3 +1,4 @@
+import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import {
   defaultEnvFilePath,
@@ -124,7 +125,7 @@ describe("loadConfig", () => {
 
   it("uses the external secrets folder as the default env file path", () => {
     expect(defaultEnvFilePath("C:\\Users\\Dovid L")).toBe(
-      "C:\\Users\\Dovid L\\secrets\\message-automation-hub\\.env",
+      join("C:\\Users\\Dovid L", "secrets", "message-automation-hub", ".env"),
     );
   });
 
