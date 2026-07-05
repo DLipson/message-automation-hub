@@ -69,6 +69,7 @@ jobs:
           systemctl stop "$service" || true
           mkdir -p "$app_dir"
           cd "$app_dir"
+          git config --global --add safe.directory "$app_dir"
 
           if [ ! -d .git ]; then
             git init
