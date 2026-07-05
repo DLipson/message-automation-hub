@@ -81,7 +81,7 @@ jobs:
           fi
 
           git fetch origin master
-          git checkout -B master FETCH_HEAD
+          git checkout --force -B master FETCH_HEAD
           git reset --hard FETCH_HEAD
 
           npm ci --include=dev --no-audit --no-fund
