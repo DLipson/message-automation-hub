@@ -10,6 +10,7 @@ Environment=NODE_ENV=production
 Environment=MESSAGE_HUB_ENV_FILE=/home/opc/secrets/message-automation-hub/.env
 Environment=MESSAGE_HUB_SECRET_STORE=file
 Environment=MESSAGE_HUB_SECRET_FILE=/home/opc/secrets/message-automation-hub/secrets.json
+EnvironmentFile=-/etc/message-automation-hub/control.env
 ExecStart=/usr/bin/npm run dev
 Restart=on-failure
 RestartSec=10

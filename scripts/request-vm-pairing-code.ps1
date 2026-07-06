@@ -4,9 +4,7 @@ param(
   [string]$Instance = "message-hub-2",
   [string]$VmUser = "dovid",
   [int]$SshPort = 2222,
-  [int]$GuiPort = 8787,
-  [string]$KeyPath = "$env:USERPROFILE\.ssh\message_hub_gce",
-  [switch]$Open
+  [string]$KeyPath = "$env:USERPROFILE\.ssh\message_hub_gce"
 )
 
 $ErrorActionPreference = "Stop"
@@ -33,7 +31,7 @@ function Test-LocalPort {
 function Wait-LocalPort {
   param(
     [int]$Port,
-    [int]$Seconds = 20
+    [int]$Seconds = 30
   )
 
   $deadline = (Get-Date).AddSeconds($Seconds)
@@ -125,8 +123,6 @@ function Get-GcloudInvocation {
 function Invoke-Remote {
   param([string]$Command)
 
-  $Command = $Command -replace "`r`n", "`n" -replace "`r", ""
-
   & "$env:WINDIR\System32\OpenSSH\ssh.exe" `
     -p $SshPort `
     -i $KeyPath `
@@ -170,58 +166,6 @@ if (-not (Test-LocalPort -Port $SshPort)) {
 
   Wait-LocalPort -Port $SshPort -Seconds 30
   Write-Host "IAP SSH tunnel started on localhost:$SshPort (PID $($iapProcess.Id))."
-} else {
-  Write-Host "IAP SSH tunnel already available on localhost:$SshPort."
 }
 
-$journal = Invoke-Remote "sudo systemctl restart message-hub-settings && sleep 4 && journalctl -u message-hub-settings --no-pager -n 25"
-$urlMatches = [regex]::Matches(($journal -join "`n"), "http://127\.0\.0\.1:$GuiPort/\?token=[a-f0-9]+")
-if ($urlMatches.Count -eq 0) {
-  Write-Host ($journal -join "`n")
-  throw "Could not find a settings GUI URL in the service logs."
-}
-
-$url = $urlMatches[$urlMatches.Count - 1].Value
-if (-not $url) {
-  throw "Could not find a settings GUI URL in the service logs."
-}
-
-if (-not (Test-LocalPort -Port $GuiPort)) {
-  $guiOut = Join-Path $logDir "settings-tunnel.out.log"
-  $guiErr = Join-Path $logDir "settings-tunnel.err.log"
-  Remove-Item $guiOut, $guiErr -ErrorAction SilentlyContinue
-
-  $guiProcess = Start-Detached `
-    -FilePath "$env:WINDIR\System32\OpenSSH\ssh.exe" `
-    -Arguments @(
-      "-p", "$SshPort",
-      "-i", $KeyPath,
-      "-o", "StrictHostKeyChecking=accept-new",
-      "-o", "HostKeyAlias=$Instance-iap",
-      "-o", "ExitOnForwardFailure=yes",
-      "-N",
-      "-L", "$GuiPort`:127.0.0.1:$GuiPort",
-      "$VmUser@127.0.0.1"
-    ) `
-    -StdOut $guiOut `
-    -StdErr $guiErr
-
-  Wait-LocalPort -Port $GuiPort -Seconds 15
-  Write-Host "Settings GUI tunnel started on localhost:$GuiPort (PID $($guiProcess.Id))."
-} else {
-  Write-Host "Settings GUI tunnel already available on localhost:$GuiPort."
-}
-
-Write-Host ""
-Write-Host "Open:"
-Write-Host $url
-
-if ($Open) {
-  Start-Process $url
-}
-
-
-
-
-
-
+Invoke-Remote "sudo /opt/message-automation-hub/scripts/request-pairing-code.sh"

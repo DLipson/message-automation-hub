@@ -198,3 +198,18 @@ For the current Google Cloud VM, generate a fresh settings GUI token and open th
 ```powershell
 powershell -ExecutionPolicy Bypass -File .\scripts\open-vm-gui.ps1
 ```
+
+To request a WhatsApp phone-number pairing code from the already-running VM bot without the GUI, configure the root-only localhost control endpoint once on the VM:
+
+```bash
+cd /opt/message-automation-hub
+sudo ./scripts/configure-vm-bot-control.sh
+```
+
+Then request a code only when you are ready to enter it on your phone:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\scripts\request-vm-pairing-code.ps1
+```
+
+The command opens the IAP SSH tunnel if needed, runs the VM-side `sudo /opt/message-automation-hub/scripts/request-pairing-code.sh`, and prints the JSON response containing the one-time `code`.
