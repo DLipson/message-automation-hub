@@ -1,3 +1,4 @@
+import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import { RequestTransactionCategoryFromEmail } from "./automations/transaction-category-request/request-from-email.js";
 import { ImapEmailInbox } from "./adapters/email/imap-email-inbox.js";
 import { SmtpEmailSender } from "./adapters/email/smtp-email-sender.js";
@@ -29,6 +30,7 @@ const whatsapp = new WhatsAppWebChannel(config.whatsapp);
 whatsapp.onMessage(message => forwardMessageToEmail.handle(message));
 
 await whatsapp.start();
+startControlServer(whatsapp, process.env);
 
 const emailAutomationHandlers: EmailAutomationHandler[] = [];
 
@@ -61,4 +63,64 @@ if (config.emailToWhatsapp.enabled || config.transactionCategoryRequest.enabled)
 
   poller.start();
   console.log("Email automation polling is enabled.");
+}
+
+function startControlServer(
+  whatsappChannel: WhatsAppWebChannel,
+  env: NodeJS.ProcessEnv,
+): void {
+  const port = Number(env.MESSAGE_HUB_BOT_CONTROL_PORT ?? 0);
+  const token = env.MESSAGE_HUB_BOT_CONTROL_TOKEN;
+
+  if (!port || !token) {
+    return;
+  }
+
+  const server = createServer(async (request, response) => {
+    try {
+      await routeControlRequest(whatsappChannel, token, request, response);
+    } catch (error) {
+      sendJson(response, 500, {
+        error: error instanceof Error ? error.message : "Unknown error",
+      });
+    }
+  });
+
+  server.listen(port, "127.0.0.1", () => {
+    console.log(`Bot control server listening on 127.0.0.1:${port}.`);
+  });
+}
+
+async function routeControlRequest(
+  whatsappChannel: WhatsAppWebChannel,
+  token: string,
+  request: IncomingMessage,
+  response: ServerResponse,
+): Promise<void> {
+  const url = new URL(request.url ?? "/", "http://127.0.0.1");
+
+  if (request.headers["x-bot-control-token"] !== token) {
+    sendJson(response, 403, { error: "Forbidden" });
+    return;
+  }
+
+  if (request.method === "POST" && url.pathname === "/pairing-code") {
+    const code = await whatsappChannel.requestPairingCode();
+    sendJson(response, 200, { code });
+    return;
+  }
+
+  sendJson(response, 404, { error: "Not found" });
+}
+
+function sendJson(
+  response: ServerResponse,
+  statusCode: number,
+  body: unknown,
+): void {
+  response.writeHead(statusCode, {
+    "content-type": "application/json; charset=utf-8",
+    "cache-control": "no-store",
+  });
+  response.end(JSON.stringify(body));
 }

@@ -37,13 +37,13 @@ Personal message automation experiments. The first proof of concept receives Wha
 
    Open the printed `http://127.0.0.1:...` URL.
 
-6. Or run the bot directly:
+6. Or run the bot directly without requesting a new pairing code:
 
    ```powershell
    npm run dev
    ```
 
-7. When a pairing code appears, open WhatsApp:
+7. To pair WhatsApp, start the bot from the settings GUI and click `Request Pairing Code` only when you are ready to enter the code on your phone. Then open WhatsApp:
 
    ```text
    Linked devices -> Link a device -> Link with phone number instead
@@ -63,6 +63,7 @@ It can:
 - save or delete the SMTP password in Windows Credential Manager
 - send a test email
 - start and stop the bot
+- request a WhatsApp pairing code from the running bot only when needed
 - show bot logs and the WhatsApp pairing code
 
 ## Email to WhatsApp
@@ -197,4 +198,3 @@ For the current Google Cloud VM, generate a fresh settings GUI token and open th
 ```powershell
 powershell -ExecutionPolicy Bypass -File .\scripts\open-vm-gui.ps1
 ```
-

@@ -11,6 +11,8 @@ import { settingsToEmailConfig, type AppSettings } from "./app-settings.js";
 const host = "127.0.0.1";
 const port = Number(process.env.MESSAGE_HUB_SETTINGS_PORT ?? 0);
 const token = randomBytes(24).toString("hex");
+const botControlToken = randomBytes(24).toString("hex");
+const botControlPort = Number(process.env.MESSAGE_HUB_BOT_CONTROL_PORT ?? 8788);
 const envFilePath = process.env.MESSAGE_HUB_ENV_FILE ?? defaultEnvFilePath();
 loadRuntimeEnv();
 const settingsStore = new EnvFileSettingsStore(envFilePath);
@@ -23,6 +25,8 @@ const botProcess = new BotProcess({
   env: {
     ...process.env,
     MESSAGE_HUB_ENV_FILE: envFilePath,
+    MESSAGE_HUB_BOT_CONTROL_TOKEN: botControlToken,
+    MESSAGE_HUB_BOT_CONTROL_PORT: String(botControlPort),
   },
 });
 
@@ -109,6 +113,11 @@ async function route(
     return;
   }
 
+  if (request.method === "POST" && url.pathname === "/api/bot/pairing-code") {
+    sendJson(response, 200, await requestPairingCode());
+    return;
+  }
+
   if (request.method === "POST" && url.pathname === "/api/bot/stop") {
     sendJson(response, 200, botProcess.stop());
     return;
@@ -154,6 +163,23 @@ async function sendTestEmail(): Promise<void> {
   });
 
   botProcess.addLog(`Sent test email to ${config.email.to}.`);
+}
+
+async function requestPairingCode(): Promise<{ code: string }> {
+  const response = await fetch(`http://127.0.0.1:${botControlPort}/pairing-code`, {
+    method: "POST",
+    headers: {
+      "x-bot-control-token": botControlToken,
+    },
+  });
+
+  const body = await response.json() as { code?: string; error?: string };
+
+  if (!response.ok || !body.code) {
+    throw new Error(body.error ?? "Bot is not ready to request a pairing code");
+  }
+
+  return { code: body.code };
 }
 
 function isAuthorized(request: IncomingMessage, url: URL): boolean {
@@ -579,6 +605,7 @@ function settingsPage(pageToken: string): string {
             <h2>Run</h2>
             <div class="actions">
               <button class="primary" id="start-bot" type="button">Start Bot</button>
+              <button class="secondary" id="request-pairing-code" type="button">Request Pairing Code</button>
               <button class="secondary" id="stop-bot" type="button">Stop Bot</button>
               <span class="notice" id="run-notice"></span>
             </div>
@@ -665,8 +692,9 @@ function settingsPage(pageToken: string): string {
 
       function renderBot(bot) {
         document.querySelector("#bot-status").textContent = bot.status;
-        document.querySelector("#start-bot").disabled =
-          bot.status === "starting" || bot.status === "running";
+        const isStartingOrRunning = bot.status === "starting" || bot.status === "running";
+        document.querySelector("#start-bot").disabled = isStartingOrRunning;
+        document.querySelector("#request-pairing-code").disabled = bot.status !== "running";
         document.querySelector("#stop-bot").disabled = bot.status === "stopped";
 
         const nextLogText = bot.logs.join("\\n");
@@ -774,6 +802,20 @@ function settingsPage(pageToken: string): string {
         try {
           renderBot(await api("/api/bot/start", { method: "POST" }));
           runNotice.textContent = "";
+        } catch (error) {
+          runNotice.className = "notice error";
+          runNotice.textContent = error.message;
+        }
+      });
+
+      document.querySelector("#request-pairing-code").addEventListener("click", async () => {
+        runNotice.className = "notice";
+        runNotice.textContent = "Requesting pairing code...";
+
+        try {
+          const result = await api("/api/bot/pairing-code", { method: "POST" });
+          runNotice.textContent = "Pairing code: " + result.code;
+          await refresh();
         } catch (error) {
           runNotice.className = "notice error";
           runNotice.textContent = error.message;

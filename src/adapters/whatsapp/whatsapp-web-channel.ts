@@ -13,6 +13,7 @@ import type {
 } from "../../ports/whatsapp-sender.js";
 
 const { Client, LocalAuth, MessageMedia } = pkg;
+const manualPairingCodeRefreshIntervalMs = 2_147_483_647;
 
 export type WhatsAppWebChannelConfig = {
   phoneNumber: string;
@@ -36,15 +37,14 @@ type RawWhatsAppMessage = {
 
 export class WhatsAppWebChannel implements InboundChannel, WhatsAppSender {
   private readonly client: InstanceType<typeof Client>;
+  private readonly phoneNumber: string;
   private handler?: InboundMessageHandler;
   private pairingCodeRequests = 0;
 
   constructor(config: WhatsAppWebChannelConfig) {
+    this.phoneNumber = config.phoneNumber;
     this.client = new Client({
       authStrategy: new LocalAuth(),
-      pairWithPhoneNumber: {
-        phoneNumber: config.phoneNumber,
-      },
       puppeteer: {
         args: browserArgs(),
       },
@@ -90,6 +90,12 @@ export class WhatsAppWebChannel implements InboundChannel, WhatsAppSender {
       );
     });
 
+    this.client.on("qr", () => {
+      logWhatsApp(
+        "QR login requested. Phone-number pairing code was not requested automatically; use Request Pairing Code when you are ready to link a device.",
+      );
+    });
+
     this.client.on("message", async rawMessage => {
       if (!this.handler) {
         return;
@@ -100,6 +106,15 @@ export class WhatsAppWebChannel implements InboundChannel, WhatsAppSender {
 
     logWhatsApp("Initializing client.");
     await this.client.initialize();
+  }
+
+  async requestPairingCode(): Promise<string> {
+    logWhatsApp("Manual pairing code request received.");
+    return await this.client.requestPairingCode(
+      this.phoneNumber,
+      true,
+      manualPairingCodeRefreshIntervalMs,
+    );
   }
 
   async sendMessage(message: WhatsAppDirectMessage): Promise<void> {
@@ -183,4 +198,3 @@ function formatEventValue(value: unknown): string {
 
   return JSON.stringify(value) ?? String(value);
 }
-
