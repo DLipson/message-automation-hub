@@ -87,7 +87,7 @@ export class ImapEmailInbox implements EmailInbox {
   }
 
   private createClient(): ImapFlow {
-    return new ImapFlow({
+    const client = new ImapFlow({
       host: this.config.host,
       port: this.config.port,
       secure: this.config.secure,
@@ -97,6 +97,12 @@ export class ImapEmailInbox implements EmailInbox {
       },
       logger: false,
     });
+
+    client.on("error", error => {
+      console.error(`IMAP client error: ${formatError(error)}`);
+    });
+
+    return client;
   }
 }
 
@@ -106,4 +112,12 @@ function toMediaAttachment(attachment: Attachment): MediaAttachment {
     contentType: attachment.contentType,
     ...(attachment.filename ? { filename: attachment.filename } : {}),
   };
+}
+
+function formatError(error: unknown): string {
+  if (error instanceof Error) {
+    return error.message;
+  }
+
+  return String(error);
 }

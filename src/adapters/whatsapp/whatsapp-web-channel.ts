@@ -37,6 +37,7 @@ type RawWhatsAppMessage = {
 export class WhatsAppWebChannel implements InboundChannel, WhatsAppSender {
   private readonly client: InstanceType<typeof Client>;
   private handler?: InboundMessageHandler;
+  private pairingCodeRequests = 0;
 
   constructor(config: WhatsAppWebChannelConfig) {
     this.client = new Client({
@@ -56,11 +57,37 @@ export class WhatsAppWebChannel implements InboundChannel, WhatsAppSender {
 
   async start(): Promise<void> {
     this.client.on("code", (code: string) => {
-      console.log(`WhatsApp pairing code: ${code}`);
+      this.pairingCodeRequests += 1;
+      logWhatsApp(
+        `Pairing code requested (#${this.pairingCodeRequests}). Use the latest code only.`,
+      );
+      logWhatsApp(`WhatsApp pairing code: ${code}`);
+    });
+
+    this.client.on("authenticated", () => {
+      logWhatsApp("Client authenticated.");
+    });
+
+    this.client.on("auth_failure", message => {
+      logWhatsApp(`Authentication failed: ${formatEventValue(message)}`);
     });
 
     this.client.on("ready", () => {
-      console.log("WhatsApp client is ready.");
+      logWhatsApp("Client is ready.");
+    });
+
+    this.client.on("disconnected", reason => {
+      logWhatsApp(`Client disconnected: ${formatEventValue(reason)}`);
+    });
+
+    this.client.on("change_state", state => {
+      logWhatsApp(`State changed: ${formatEventValue(state)}`);
+    });
+
+    this.client.on("loading_screen", (percent, message) => {
+      logWhatsApp(
+        `Loading screen ${formatEventValue(percent)}%: ${formatEventValue(message)}`,
+      );
     });
 
     this.client.on("message", async rawMessage => {
@@ -71,6 +98,7 @@ export class WhatsAppWebChannel implements InboundChannel, WhatsAppSender {
       await this.handler(await this.toInboundMessage(rawMessage));
     });
 
+    logWhatsApp("Initializing client.");
     await this.client.initialize();
   }
 
@@ -139,3 +167,20 @@ function browserArgs(): string[] {
 
   return ["--no-sandbox", "--disable-setuid-sandbox"];
 }
+
+function logWhatsApp(message: string): void {
+  console.log(`[${new Date().toISOString()}] WhatsApp ${message}`);
+}
+
+function formatEventValue(value: unknown): string {
+  if (value instanceof Error) {
+    return value.message;
+  }
+
+  if (typeof value === "string") {
+    return value;
+  }
+
+  return JSON.stringify(value) ?? String(value);
+}
+
