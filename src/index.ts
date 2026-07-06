@@ -29,8 +29,9 @@ const whatsapp = new WhatsAppWebChannel(config.whatsapp);
 
 whatsapp.onMessage(message => forwardMessageToEmail.handle(message));
 
-await whatsapp.start();
+const whatsappStart = whatsapp.start();
 startControlServer(whatsapp, process.env);
+await whatsappStart;
 
 const emailAutomationHandlers: EmailAutomationHandler[] = [];
 
