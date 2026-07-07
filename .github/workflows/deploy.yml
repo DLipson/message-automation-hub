@@ -87,6 +87,11 @@ jobs:
           npm ci --include=dev --no-audit --no-fund
           npm run build
 
+          if [ -f "deploy/systemd/${service}.service" ]; then
+            cp "deploy/systemd/${service}.service" "/etc/systemd/system/${service}.service"
+            systemctl daemon-reload
+          fi
+
           rm -f .wwebjs_auth/session/SingletonLock \
             .wwebjs_auth/session/SingletonSocket \
             .wwebjs_auth/session/SingletonCookie
@@ -99,3 +104,4 @@ jobs:
           systemctl start "$service"
           systemctl --no-pager --full status "$service"
           REMOTE
+

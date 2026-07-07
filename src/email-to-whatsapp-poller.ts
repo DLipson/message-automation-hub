@@ -4,6 +4,7 @@ type UnreadEmailProcessor = {
 
 export class EmailToWhatsAppPoller {
   private timer: NodeJS.Timeout | undefined;
+  private polling = false;
 
   constructor(
     private readonly processor: UnreadEmailProcessor,
@@ -31,6 +32,15 @@ export class EmailToWhatsAppPoller {
   }
 
   private async poll(): Promise<void> {
+    if (this.polling) {
+      console.warn(
+        "Email automation poll skipped because the previous poll is still running.",
+      );
+      return;
+    }
+
+    this.polling = true;
+
     try {
       await this.processor.processUnread();
     } catch (error) {
@@ -39,6 +49,8 @@ export class EmailToWhatsAppPoller {
           error instanceof Error ? error.message : "Unknown error"
         }`,
       );
+    } finally {
+      this.polling = false;
     }
   }
 }

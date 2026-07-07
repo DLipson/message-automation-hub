@@ -18,9 +18,10 @@ loadRuntimeEnv();
 const settingsStore = new EnvFileSettingsStore(envFilePath);
 const secretStore = await createSecretStore();
 const secretStatus = new SecretStatus(secretStore);
+const botScript = process.env.NODE_ENV === "production" ? "start" : "dev";
 const botProcess = new BotProcess({
   command: "npm",
-  args: ["run", "dev"],
+  args: ["run", botScript],
   cwd: process.cwd(),
   env: {
     ...process.env,
@@ -863,3 +864,4 @@ function settingsPage(pageToken: string): string {
   </body>
 </html>`;
 }
+

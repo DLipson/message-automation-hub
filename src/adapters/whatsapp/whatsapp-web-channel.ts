@@ -180,7 +180,17 @@ function browserArgs(): string[] {
     return [];
   }
 
-  return ["--no-sandbox", "--disable-setuid-sandbox"];
+  return [
+    "--no-sandbox",
+    "--disable-setuid-sandbox",
+    "--disable-background-networking",
+    "--disable-default-apps",
+    "--disable-dev-shm-usage",
+    "--disable-extensions",
+    "--disable-gpu",
+    "--disable-sync",
+    "--no-first-run",
+  ];
 }
 
 function logWhatsApp(message: string): void {
@@ -198,3 +208,4 @@ function formatEventValue(value: unknown): string {
 
   return JSON.stringify(value) ?? String(value);
 }
+

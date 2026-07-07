@@ -6,8 +6,11 @@
   "scripts": {
     "dev": "tsx src/index.ts",
     "settings": "tsx src/settings/settings-server.ts",
+    "start": "node dist/index.js",
+    "start:settings": "node dist/settings/settings-server.js",
     "secret:set:smtp": "tsx src/tools/set-smtp-password.ts",
-    "build": "tsc --noEmit",
+    "typecheck": "tsc --noEmit",
+    "build": "tsc -p tsconfig.build.json",
     "test": "vitest run"
   },
   "dependencies": {
@@ -29,3 +32,4 @@
     "keytar": "^7.9.0"
   }
 }
+
