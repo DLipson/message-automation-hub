@@ -4,3 +4,4 @@ dist/
 .wwebjs_auth/
 .wwebjs_cache/
 coverage/
+vm-scripts/
