@@ -2,226 +2,78 @@ param(
   [string]$ProjectId = "project-f57c5350-09b6-46d6-957",
   [string]$Zone = "us-central1-a",
   [string]$Instance = "message-hub-2",
-  [string]$VmUser = "dovid",
+  [string]$VmUser = "",
   [int]$SshPort = 2222,
   [int]$GuiPort = 8787,
-  [string]$KeyPath = "$env:USERPROFILE\.ssh\message_hub_gce",
+  [string]$KeyPath = "$env:USERPROFILE\.ssh\google_compute_engine",
   [switch]$Open
 )
 
 $ErrorActionPreference = "Stop"
+. "$PSScriptRoot\vm-common.ps1"
 
-function Test-LocalPort {
-  param([int]$Port)
+$logDir = Join-Path (Join-Path $env:LOCALAPPDATA "Temp") "message-automation-hub"
 
-  $client = [System.Net.Sockets.TcpClient]::new()
-  try {
-    $connect = $client.BeginConnect("127.0.0.1", $Port, $null, $null)
-    if (-not $connect.AsyncWaitHandle.WaitOne(500)) {
-      return $false
-    }
+$settingsSetup = @'
+sudo bash -lc 'set -euo pipefail
+service="message-hub-settings"
+drop_dir="/etc/systemd/system/${service}.service.d"
+drop_file="${drop_dir}/vm-config.conf"
+install -d -m 0755 "$drop_dir"
+printf "%s\n" \
+  "[Service]" \
+  "User=opc" \
+  "Group=opc" \
+  "Environment=NODE_ENV=production" \
+  "Environment=MESSAGE_HUB_SETTINGS_PORT=8787" \
+  "Environment=MESSAGE_HUB_ENV_FILE=/home/opc/secrets/message-automation-hub/.env" \
+  "Environment=MESSAGE_HUB_SECRET_STORE=file" \
+  "Environment=MESSAGE_HUB_SECRET_FILE=/home/opc/secrets/message-automation-hub/secrets.json" \
+  > "$drop_file"
+systemctl daemon-reload
+systemctl restart "$service"
+sleep 4
+journalctl -u "$service" --no-pager -n 40 -l
+'
+'@
 
-    $client.EndConnect($connect)
-    return $true
-  } catch {
-    return $false
-  } finally {
-    $client.Dispose()
-  }
-}
+$journal = Invoke-VmCommand `
+  -ProjectId $ProjectId `
+  -Zone $Zone `
+  -Instance $Instance `
+  -VmUser $VmUser `
+  -SshPort $SshPort `
+  -KeyPath $KeyPath `
+  -Command $settingsSetup `
+  -LogDir $logDir
 
-function Wait-LocalPort {
-  param(
-    [int]$Port,
-    [int]$Seconds = 20
-  )
-
-  $deadline = (Get-Date).AddSeconds($Seconds)
-  while ((Get-Date) -lt $deadline) {
-    if (Test-LocalPort -Port $Port) {
-      return
-    }
-
-    Start-Sleep -Milliseconds 500
-  }
-
-  throw "Timed out waiting for localhost:$Port"
-}
-
-function Join-ProcessArguments {
-  param([string[]]$Arguments)
-
-  return (($Arguments | ForEach-Object {
-    if ($_ -eq "") {
-      '""'
-    } elseif ($_ -notmatch '[\s"]') {
-      $_
-    } else {
-      '"' + ($_ -replace '"', '\"') + '"'
-    }
-  }) -join ' ')
-}
-
-function Start-Detached {
-  param(
-    [string]$FilePath,
-    [string[]]$Arguments,
-    [string]$StdOut,
-    [string]$StdErr
-  )
-
-  $info = [System.Diagnostics.ProcessStartInfo]::new()
-  $info.FileName = $FilePath
-  $info.Arguments = Join-ProcessArguments -Arguments $Arguments
-  $info.UseShellExecute = $false
-  $info.CreateNoWindow = $true
-  $info.RedirectStandardOutput = $true
-  $info.RedirectStandardError = $true
-
-  $process = [System.Diagnostics.Process]::new()
-  $process.StartInfo = $info
-  [void]$process.Start()
-
-  Register-ObjectEvent -InputObject $process -EventName OutputDataReceived -Action {
-    if ($EventArgs.Data) {
-      Add-Content -Path $Event.MessageData.StdOut -Value $EventArgs.Data
-    }
-  } -MessageData @{ StdOut = $StdOut } | Out-Null
-
-  Register-ObjectEvent -InputObject $process -EventName ErrorDataReceived -Action {
-    if ($EventArgs.Data) {
-      Add-Content -Path $Event.MessageData.StdErr -Value $EventArgs.Data
-    }
-  } -MessageData @{ StdErr = $StdErr } | Out-Null
-
-  $process.BeginOutputReadLine()
-  $process.BeginErrorReadLine()
-  return $process
-}
-
-function Get-GcloudInvocation {
-  $sdk = Join-Path $env:LOCALAPPDATA "Google\Cloud SDK\google-cloud-sdk"
-  $python = Join-Path $sdk "platform\bundledpython\python.exe"
-  $gcloud = Join-Path $sdk "lib\gcloud.py"
-
-  if ((Test-Path $python) -and (Test-Path $gcloud)) {
-    return @{
-      FilePath = $python
-      Prefix = @($gcloud)
-    }
-  }
-
-  $gcloudCommand = Get-Command gcloud -ErrorAction SilentlyContinue
-  if ($gcloudCommand) {
-    return @{
-      FilePath = $gcloudCommand.Source
-      Prefix = @()
-    }
-  }
-
-  throw "Could not find gcloud. Install Google Cloud CLI or set up the bundled SDK path."
-}
-
-function Invoke-Remote {
-  param([string]$Command)
-
-  $Command = $Command -replace "`r`n", "`n" -replace "`r", ""
-
-  & "$env:WINDIR\System32\OpenSSH\ssh.exe" `
-    -p $SshPort `
-    -i $KeyPath `
-    -o StrictHostKeyChecking=accept-new `
-    -o HostKeyAlias="$Instance-iap" `
-    "$VmUser@127.0.0.1" `
-    $Command
-}
-
-if (-not (Test-Path $KeyPath)) {
-  throw "SSH key not found: $KeyPath"
-}
-
-$logDir = Join-Path $env:TEMP "message-automation-hub"
-New-Item -ItemType Directory -Path $logDir -Force | Out-Null
-
-if (-not (Test-LocalPort -Port $SshPort)) {
-  $gcloudInvocation = Get-GcloudInvocation
-  $iapOut = Join-Path $logDir "iap-tunnel.out.log"
-  $iapErr = Join-Path $logDir "iap-tunnel.err.log"
-  Remove-Item $iapOut, $iapErr -ErrorAction SilentlyContinue
-
-  $iapArgs = @(
-    $gcloudInvocation.Prefix
-    "compute"
-    "start-iap-tunnel"
-    $Instance
-    "22"
-    "--zone"
-    $Zone
-    "--project"
-    $ProjectId
-    "--local-host-port=127.0.0.1:$SshPort"
-  )
-
-  $iapProcess = Start-Detached `
-    -FilePath $gcloudInvocation.FilePath `
-    -Arguments $iapArgs `
-    -StdOut $iapOut `
-    -StdErr $iapErr
-
-  Wait-LocalPort -Port $SshPort -Seconds 30
-  Write-Host "IAP SSH tunnel started on localhost:$SshPort (PID $($iapProcess.Id))."
-} else {
-  Write-Host "IAP SSH tunnel already available on localhost:$SshPort."
-}
-
-$journal = Invoke-Remote "sudo systemctl restart message-hub-settings && sleep 4 && journalctl -u message-hub-settings --no-pager -n 25"
-$urlMatches = [regex]::Matches(($journal -join "`n"), "http://127\.0\.0\.1:$GuiPort/\?token=[a-f0-9]+")
+$journalText = $journal -join "`n"
+$urlMatches = [regex]::Matches($journalText, "http://127\.0\.0\.1:$GuiPort/\?token=[a-f0-9]+")
 if ($urlMatches.Count -eq 0) {
-  Write-Host ($journal -join "`n")
+  Write-Host $journalText
   throw "Could not find a settings GUI URL in the service logs."
 }
 
 $url = $urlMatches[$urlMatches.Count - 1].Value
-if (-not $url) {
-  throw "Could not find a settings GUI URL in the service logs."
-}
 
-if (-not (Test-LocalPort -Port $GuiPort)) {
-  $guiOut = Join-Path $logDir "settings-tunnel.out.log"
-  $guiErr = Join-Path $logDir "settings-tunnel.err.log"
-  Remove-Item $guiOut, $guiErr -ErrorAction SilentlyContinue
-
-  $guiProcess = Start-Detached `
-    -FilePath "$env:WINDIR\System32\OpenSSH\ssh.exe" `
-    -Arguments @(
-      "-p", "$SshPort",
-      "-i", $KeyPath,
-      "-o", "StrictHostKeyChecking=accept-new",
-      "-o", "HostKeyAlias=$Instance-iap",
-      "-o", "ExitOnForwardFailure=yes",
-      "-N",
-      "-L", "$GuiPort`:127.0.0.1:$GuiPort",
-      "$VmUser@127.0.0.1"
-    ) `
-    -StdOut $guiOut `
-    -StdErr $guiErr
-
-  Wait-LocalPort -Port $GuiPort -Seconds 15
-  Write-Host "Settings GUI tunnel started on localhost:$GuiPort (PID $($guiProcess.Id))."
-} else {
-  Write-Host "Settings GUI tunnel already available on localhost:$GuiPort."
-}
+Start-VmLocalForward `
+  -ProjectId $ProjectId `
+  -Zone $Zone `
+  -Instance $Instance `
+  -VmUser $VmUser `
+  -SshPort $SshPort `
+  -KeyPath $KeyPath `
+  -LocalPort $GuiPort `
+  -RemotePort $GuiPort `
+  -LogDir $logDir | Out-Null
 
 Write-Host ""
 Write-Host "Open:"
 Write-Host $url
+Write-Host ""
+Write-Host "The settings service is configured to write /home/opc/secrets/message-automation-hub/.env."
+Write-Host "After saving settings, restart the bot with: sudo systemctl restart message-automation-hub"
 
 if ($Open) {
   Start-Process $url
 }
-
-
-
-
-
-

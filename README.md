@@ -193,23 +193,18 @@ npm audit
 
 See [docs/cloud-ubuntu.md](docs/cloud-ubuntu.md) for running on an Ubuntu VM with file-backed secrets, SSH-tunneled GUI access, and systemd.
 
-For the current Google Cloud VM, generate a fresh settings GUI token and open the IAP tunnels from Windows with:
+For the current Google Cloud VM, generate a fresh settings GUI token and open the IAP/local tunnels from Windows with:
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File .\scripts\open-vm-gui.ps1
 ```
 
-To request a WhatsApp phone-number pairing code from the already-running VM bot without the GUI, configure the root-only localhost control endpoint once on the VM:
+The script uses the official Google Cloud CLI, IAP, OS Login, and the local `~\.ssh\google_compute_engine` key. It also configures `message-hub-settings.service` to write `/home/opc/secrets/message-automation-hub/.env`. After saving settings, restart the bot so the new environment is loaded.
 
-```bash
-cd /opt/message-automation-hub
-sudo ./scripts/configure-vm-bot-control.sh
-```
-
-Then request a code only when you are ready to enter it on your phone:
+Request a WhatsApp phone-number pairing code only when you are ready to enter it on your phone:
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File .\scripts\request-vm-pairing-code.ps1
 ```
 
-The command opens the IAP SSH tunnel if needed, runs the VM-side `sudo /opt/message-automation-hub/scripts/request-pairing-code.sh`, and prints the JSON response containing the one-time `code`.
+The command opens/reuses the IAP SSH tunnel, runs the VM-side `sudo /opt/message-automation-hub/scripts/request-pairing-code.sh`, and prints the JSON response containing the one-time `code`.
