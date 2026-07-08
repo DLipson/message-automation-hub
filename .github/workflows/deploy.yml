@@ -129,7 +129,14 @@ jobs:
             service_user="\$(stat -c '%U' "\$app_dir" 2>/dev/null || echo root)"
           fi
           if [ "\$service_user" != "root" ]; then
+            if ! id -u "\$service_user" >/dev/null 2>&1; then
+              useradd --system --create-home --home-dir "/home/\$service_user" --shell /usr/sbin/nologin "\$service_user"
+            fi
             chown -R "\${service_user}:\${service_user}" "\$app_dir"
+            if [ -d "/home/\$service_user/secrets/message-automation-hub" ]; then
+              chown -R "\${service_user}:\${service_user}" "/home/\$service_user/secrets/message-automation-hub"
+              chmod 700 "/home/\$service_user/secrets" "/home/\$service_user/secrets/message-automation-hub" || true
+            fi
           fi
 
           systemctl reset-failed "\$service" || true
