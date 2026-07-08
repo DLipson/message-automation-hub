@@ -132,16 +132,37 @@ jobs:
             if ! id -u "\$service_user" >/dev/null 2>&1; then
               useradd --system --create-home --home-dir "/home/\$service_user" --shell /usr/sbin/nologin "\$service_user"
             fi
+            secret_dir="/home/\$service_user/secrets/message-automation-hub"
+            legacy_secret_dir="/home/dovid/secrets/message-automation-hub"
+            if [ -d "\$legacy_secret_dir" ]; then
+              mkdir -p "\$secret_dir"
+              for secret_file in .env secrets.json; do
+                if [ ! -s "\$secret_dir/\$secret_file" ] && [ -s "\$legacy_secret_dir/\$secret_file" ]; then
+                  cp -p "\$legacy_secret_dir/\$secret_file" "\$secret_dir/\$secret_file"
+                  printf 'Migrated %s to %s.\n' "\$secret_file" "\$secret_dir"
+                fi
+              done
+            fi
             chown -R "\${service_user}:\${service_user}" "\$app_dir"
             if [ -d "/home/\$service_user/secrets/message-automation-hub" ]; then
               chown -R "\${service_user}:\${service_user}" "/home/\$service_user/secrets/message-automation-hub"
               chmod 700 "/home/\$service_user/secrets" "/home/\$service_user/secrets/message-automation-hub" || true
+              chmod 600 "/home/\$service_user/secrets/message-automation-hub/.env" \
+                "/home/\$service_user/secrets/message-automation-hub/secrets.json" 2>/dev/null || true
             fi
+            mkdir -p "/home/\$service_user/.cache/puppeteer"
+            chown -R "\${service_user}:\${service_user}" "/home/\$service_user/.cache"
+            runuser -u "\$service_user" -- env \
+              HOME="/home/\$service_user" \
+              PUPPETEER_CACHE_DIR="/home/\$service_user/.cache/puppeteer" \
+              npx puppeteer browsers install chrome
           fi
 
           systemctl reset-failed "\$service" || true
           systemctl start "\$service"
+          sleep 20
           systemctl --no-pager --full status "\$service" || true
+          systemctl is-active --quiet "\$service"
 
           printf '[%s] ${complete_marker}\n' "\$(date --iso-8601=seconds)"
           REMOTE_SCRIPT

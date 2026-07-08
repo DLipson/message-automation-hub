@@ -29,6 +29,7 @@ sudo chown "$USER:$USER" /opt/message-automation-hub
 git clone <your-repo-url> /opt/message-automation-hub
 cd /opt/message-automation-hub
 npm install
+npx puppeteer browsers install chrome
 npm run build
 ```
 
