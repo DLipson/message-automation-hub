@@ -30,4 +30,23 @@ describe("EmailToWhatsAppPoller", () => {
     warn.mockRestore();
     vi.useRealTimers();
   });
+  it("logs stack details when a poll fails", async () => {
+    vi.useFakeTimers();
+    const error = vi.spyOn(console, "error").mockImplementation(() => {});
+    const processor = {
+      async processUnread(): Promise<void> {
+        throw new TypeError("send exploded");
+      },
+    };
+    const poller = new EmailToWhatsAppPoller(processor, 1000);
+
+    poller.start();
+    await vi.runOnlyPendingTimersAsync();
+    poller.stop();
+
+    expect(error.mock.calls[0]?.[0]).toContain("TypeError: send exploded");
+
+    error.mockRestore();
+    vi.useRealTimers();
+  });
 });

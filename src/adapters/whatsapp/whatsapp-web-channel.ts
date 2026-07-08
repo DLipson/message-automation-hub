@@ -14,6 +14,7 @@ import type {
 
 const { Client, LocalAuth, MessageMedia } = pkg;
 const manualPairingCodeRefreshIntervalMs = 2_147_483_647;
+const sendTimeoutMs = 90_000;
 
 export type WhatsAppWebChannelConfig = {
   phoneNumber: string;
@@ -118,22 +119,47 @@ export class WhatsAppWebChannel implements InboundChannel, WhatsAppSender {
   }
 
   async sendMessage(message: WhatsAppDirectMessage): Promise<void> {
-    await this.client.sendMessage(
-      `${message.phoneNumber}@c.us`,
-      message.text,
+    const chatId = `${message.phoneNumber}@c.us`;
+    const sentMessage = await this.sendWithContext(
+      this.client.sendMessage(chatId, message.text, { waitUntilMsgSent: true }),
+      `WhatsApp text send to ${chatId}`,
     );
+
+    if (!sentMessage) {
+      throw new Error(`WhatsApp text send to ${chatId} returned no message`);
+    }
   }
 
   async sendImage(message: WhatsAppDirectImage): Promise<void> {
+    const chatId = `${message.phoneNumber}@c.us`;
     const media = new MessageMedia(
       message.image.contentType,
       message.image.content.toString("base64"),
       message.image.filename,
     );
 
-    await this.client.sendMessage(`${message.phoneNumber}@c.us`, media, {
-      caption: message.text,
-    });
+    const sentMessage = await this.sendWithContext(
+      this.client.sendMessage(chatId, media, {
+        caption: message.text,
+        waitUntilMsgSent: true,
+      }),
+      `WhatsApp image send to ${chatId}`,
+    );
+
+    if (!sentMessage) {
+      throw new Error(`WhatsApp image send to ${chatId} returned no message`);
+    }
+  }
+
+  private async sendWithContext<T>(
+    send: Promise<T>,
+    description: string,
+  ): Promise<T> {
+    try {
+      return await withTimeout(send, sendTimeoutMs, description);
+    } catch (error) {
+      throw new Error(`${description} failed: ${formatEventValue(error)}`);
+    }
   }
 
   private async toInboundMessage(
@@ -197,9 +223,27 @@ function logWhatsApp(message: string): void {
   console.log(`[${new Date().toISOString()}] WhatsApp ${message}`);
 }
 
+function withTimeout<T>(
+  promise: Promise<T>,
+  milliseconds: number,
+  description: string,
+): Promise<T> {
+  let timeout: NodeJS.Timeout;
+  const timer = new Promise<T>((_, reject) => {
+    timeout = setTimeout(() => {
+      reject(new Error(`${description} timed out after ${milliseconds}ms`));
+    }, milliseconds);
+  });
+
+  return Promise.race([
+    promise.finally(() => clearTimeout(timeout)),
+    timer,
+  ]);
+}
+
 function formatEventValue(value: unknown): string {
   if (value instanceof Error) {
-    return value.message;
+    return value.stack ?? value.message;
   }
 
   if (typeof value === "string") {

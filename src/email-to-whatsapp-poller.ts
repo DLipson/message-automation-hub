@@ -44,13 +44,21 @@ export class EmailToWhatsAppPoller {
     try {
       await this.processor.processUnread();
     } catch (error) {
-      console.error(
-        `Email automation poll failed: ${
-          error instanceof Error ? error.message : "Unknown error"
-        }`,
-      );
+      console.error(`Email automation poll failed: ${formatError(error)}`);
     } finally {
       this.polling = false;
     }
   }
+}
+
+function formatError(error: unknown): string {
+  if (error instanceof Error) {
+    return error.stack ?? error.message;
+  }
+
+  if (typeof error === "string") {
+    return error;
+  }
+
+  return JSON.stringify(error) ?? String(error);
 }
