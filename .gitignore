@@ -5,3 +5,4 @@ dist/
 .wwebjs_cache/
 coverage/
 vm-scripts/
+gh-deploy-job-*.zip

@@ -65,19 +65,17 @@ gcloud iam service-accounts add-iam-policy-binding "$SA_EMAIL" \
   --role "roles/iam.workloadIdentityUser" \
   --member "principalSet://iam.googleapis.com/projects/${PROJECT_NUMBER}/locations/global/workloadIdentityPools/${POOL_ID}/attribute.repository/${REPO}"
 
-# Permissions needed by the metadata/reset deploy workflow.
+# Minimal permissions needed by the metadata/reset deploy workflow.
+gcloud iam roles create messageHubGithubDeploy \
+  --project "$PROJECT_ID" \
+  --title "Message Hub GitHub Deploy" \
+  --description "Deploy message hub through VM startup metadata and serial output" \
+  --permissions compute.instances.get,compute.instances.getSerialPortOutput,compute.instances.reset,compute.instances.setMetadata \
+  --stage GA
+
 gcloud projects add-iam-policy-binding "$PROJECT_ID" \
   --member "serviceAccount:${SA_EMAIL}" \
-  --role "roles/compute.instanceAdmin.v1"
-```
-
-`roles/compute.instanceAdmin.v1` is intentionally broader than the workflow strictly needs. For tighter production IAM, replace it with a custom role containing these permissions on `message-hub-2`:
-
-```text
-compute.instances.get
-compute.instances.getSerialPortOutput
-compute.instances.reset
-compute.instances.setMetadata
+  --role "projects/${PROJECT_ID}/roles/messageHubGithubDeploy"
 ```
 
 ## GitHub Variables
