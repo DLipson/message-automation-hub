@@ -20,16 +20,16 @@ service="message-hub-settings"
 drop_dir="/etc/systemd/system/${service}.service.d"
 drop_file="${drop_dir}/vm-config.conf"
 install -d -m 0755 "$drop_dir"
-printf "%s\n" \
-  "[Service]" \
-  "User=opc" \
-  "Group=opc" \
-  "Environment=NODE_ENV=production" \
-  "Environment=MESSAGE_HUB_SETTINGS_PORT=8787" \
-  "Environment=MESSAGE_HUB_ENV_FILE=/home/opc/secrets/message-automation-hub/.env" \
-  "Environment=MESSAGE_HUB_SECRET_STORE=file" \
-  "Environment=MESSAGE_HUB_SECRET_FILE=/home/opc/secrets/message-automation-hub/secrets.json" \
-  > "$drop_file"
+cat > "$drop_file" <<EOF
+[Service]
+User=opc
+Group=opc
+Environment=NODE_ENV=production
+Environment=MESSAGE_HUB_SETTINGS_PORT=8787
+Environment=MESSAGE_HUB_ENV_FILE=/home/opc/secrets/message-automation-hub/.env
+Environment=MESSAGE_HUB_SECRET_STORE=file
+Environment=MESSAGE_HUB_SECRET_FILE=/home/opc/secrets/message-automation-hub/secrets.json
+EOF
 systemctl daemon-reload
 systemctl restart "$service"
 sleep 4
