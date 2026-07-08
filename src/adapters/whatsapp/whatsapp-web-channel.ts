@@ -119,7 +119,7 @@ export class WhatsAppWebChannel implements InboundChannel, WhatsAppSender {
   }
 
   async sendMessage(message: WhatsAppDirectMessage): Promise<void> {
-    const chatId = `${message.phoneNumber}@c.us`;
+    const chatId = await this.resolveChatId(message.phoneNumber);
     const sentMessage = await this.sendWithContext(
       this.client.sendMessage(chatId, message.text, { waitUntilMsgSent: true }),
       `WhatsApp text send to ${chatId}`,
@@ -131,7 +131,7 @@ export class WhatsAppWebChannel implements InboundChannel, WhatsAppSender {
   }
 
   async sendImage(message: WhatsAppDirectImage): Promise<void> {
-    const chatId = `${message.phoneNumber}@c.us`;
+    const chatId = await this.resolveChatId(message.phoneNumber);
     const media = new MessageMedia(
       message.image.contentType,
       message.image.content.toString("base64"),
@@ -149,6 +149,18 @@ export class WhatsAppWebChannel implements InboundChannel, WhatsAppSender {
     if (!sentMessage) {
       throw new Error(`WhatsApp image send to ${chatId} returned no message`);
     }
+  }
+
+  private async resolveChatId(phoneNumber: string): Promise<string> {
+    const contactId = await this.client.getNumberId(phoneNumber);
+
+    if (!contactId) {
+      throw new Error(
+        `WhatsApp number ${phoneNumber} is not registered or reachable`,
+      );
+    }
+
+    return contactId._serialized;
   }
 
   private async sendWithContext<T>(
