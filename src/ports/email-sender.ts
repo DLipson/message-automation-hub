@@ -6,6 +6,9 @@ export type EmailMessage = {
   subject: string;
   text: string;
   attachments?: MediaAttachment[];
+  messageId?: string;
+  inReplyTo?: string;
+  references?: string[];
 };
 
 export interface EmailSender {
