@@ -1,3 +1,5 @@
+import { appDefaults } from "../config.js";
+
 export const replyMarker = "--- Reply above this line ---";
 
 export type WhatsAppEmailThread = {
@@ -29,9 +31,14 @@ export function forwardedMessageId(
   thread: WhatsAppEmailThread,
   whatsappMessageId: string,
 ): string {
-  return `<wa.${thread.token}.${safeMessageIdPart(whatsappMessageId)}@message-automation-hub.local>`;
+  return `<wa.${thread.token}.${safeMessageIdPart(whatsappMessageId)}@${messageIdDomainFor(thread)}>`;
 }
 
 function safeMessageIdPart(value: string): string {
   return Buffer.from(value).toString("base64url");
+}
+
+function messageIdDomainFor(thread: WhatsAppEmailThread): string {
+  return /@([^>]+)>?$/.exec(thread.rootMessageId.trim())?.[1] ??
+    appDefaults.emailMessageIdDomain;
 }

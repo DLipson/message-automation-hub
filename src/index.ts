@@ -25,6 +25,7 @@ const config = loadConfig(process.env, { smtpPassword });
 const logger = new ConsoleAppLogger();
 const threadStore = new JsonWhatsAppEmailThreadStore(
   defaultWhatsAppEmailThreadStorePath(process.env),
+  { messageIdDomain: config.email.messageIdDomain },
 );
 
 const emailSender = new SmtpEmailSender(config.smtp);

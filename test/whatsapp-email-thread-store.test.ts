@@ -38,6 +38,31 @@ describe("JsonWhatsAppEmailThreadStore", () => {
     expect(thread.subject).toBe(`WhatsApp: Alice [wa:${thread.token}]`);
   });
 
+  it("uses the configured message ID domain for new threads", async () => {
+    const store = new JsonWhatsAppEmailThreadStore(
+      await tempPath("threads.json"),
+      { messageIdDomain: "mail.example.test" },
+    );
+
+    const thread = await store.getOrCreate("127513921597547@lid", "Alice");
+
+    expect(thread.rootMessageId).toBe(`<wa.${thread.token}@mail.example.test>`);
+    expect(forwardedMessageId(thread, "message-1")).toContain("@mail.example.test>");
+  });
+
+  it("does not lose concurrent new threads", async () => {
+    const filePath = await tempPath("threads.json");
+    const store = new JsonWhatsAppEmailThreadStore(filePath);
+
+    const [first, second] = await Promise.all([
+      store.getOrCreate("111@c.us", "One"),
+      store.getOrCreate("222@c.us", "Two"),
+    ]);
+
+    await expect(store.findByToken(first.token)).resolves.toEqual(first);
+    await expect(store.findByToken(second.token)).resolves.toEqual(second);
+  });
+
   it("returns null when no stored thread matches", async () => {
     const store = new JsonWhatsAppEmailThreadStore(await tempPath("missing.json"));
 
@@ -82,6 +107,19 @@ describe("WhatsApp email thread helpers", () => {
     expect(tokenFromSubject("Re: WhatsApp: Alice [wa:abc_123-x]")).toBe("abc_123-x");
     expect(tokenFromMessageId(forwardedMessageId(thread, "message-1"))).toBe("abc_123-x");
     expect(tokenFromMessageId(thread.rootMessageId)).toBe("abc_123-x");
+  });
+
+  it("preserves the stored thread domain in forwarded message ids", () => {
+    const thread = {
+      token: "abc_123-x",
+      chatId: "127513921597547@lid",
+      subject: "WhatsApp: Alice [wa:abc_123-x]",
+      rootMessageId: "<wa.abc_123-x@mail.example.test>",
+    };
+
+    expect(forwardedMessageId(thread, "message-1")).toBe(
+      "<wa.abc_123-x.bWVzc2FnZS0x@mail.example.test>",
+    );
   });
 
   it("returns null for non-thread subjects and message ids", () => {

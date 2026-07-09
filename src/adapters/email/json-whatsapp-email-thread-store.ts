@@ -1,36 +1,50 @@
 import { randomBytes } from "node:crypto";
-import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
-import { defaultEnvFilePath } from "../../config.js";
+import { appDefaults, defaultEnvFilePath } from "../../config.js";
 import type {
   WhatsAppEmailThread,
   WhatsAppEmailThreadStore,
 } from "../../use-cases/whatsapp-email-thread-store.js";
 
+export type JsonWhatsAppEmailThreadStoreOptions = {
+  messageIdDomain?: string;
+};
+
 export class JsonWhatsAppEmailThreadStore implements WhatsAppEmailThreadStore {
-  constructor(private readonly filePath: string) {}
+  private readonly messageIdDomain: string;
+  private writeQueue = Promise.resolve();
+
+  constructor(
+    private readonly filePath: string,
+    options: JsonWhatsAppEmailThreadStoreOptions = {},
+  ) {
+    this.messageIdDomain = options.messageIdDomain ?? appDefaults.emailMessageIdDomain;
+  }
 
   async getOrCreate(
     chatId: string,
     displayName: string,
   ): Promise<WhatsAppEmailThread> {
-    const threads = await this.readThreads();
-    const existing = threads.find(thread => thread.chatId === chatId);
+    return await this.enqueue(async () => {
+      const threads = await this.readThreads();
+      const existing = threads.find(thread => thread.chatId === chatId);
 
-    if (existing) {
-      return existing;
-    }
+      if (existing) {
+        return existing;
+      }
 
-    const token = randomBytes(6).toString("base64url");
-    const thread = {
-      token,
-      chatId,
-      subject: `WhatsApp: ${cleanSubject(displayName)} [wa:${token}]`,
-      rootMessageId: `<wa.${token}@message-automation-hub.local>`,
-    };
+      const token = randomBytes(6).toString("base64url");
+      const thread = {
+        token,
+        chatId,
+        subject: `WhatsApp: ${cleanSubject(displayName)} [wa:${token}]`,
+        rootMessageId: `<wa.${token}@${this.messageIdDomain}>`,
+      };
 
-    await this.writeThreads([...threads, thread]);
-    return thread;
+      await this.writeThreads([...threads, thread]);
+      return thread;
+    });
   }
 
   async findByToken(token: string): Promise<WhatsAppEmailThread | null> {
@@ -43,6 +57,12 @@ export class JsonWhatsAppEmailThreadStore implements WhatsAppEmailThreadStore {
         thread => normalizeMessageId(thread.rootMessageId) === normalizeMessageId(messageId),
       ) ?? null
     );
+  }
+
+  private async enqueue<T>(operation: () => Promise<T>): Promise<T> {
+    const result = this.writeQueue.then(operation, operation);
+    this.writeQueue = result.then(() => undefined, () => undefined);
+    return await result;
   }
 
   private async readThreads(): Promise<WhatsAppEmailThread[]> {
@@ -59,7 +79,9 @@ export class JsonWhatsAppEmailThreadStore implements WhatsAppEmailThreadStore {
 
   private async writeThreads(threads: WhatsAppEmailThread[]): Promise<void> {
     await mkdir(dirname(this.filePath), { recursive: true });
-    await writeFile(this.filePath, `${JSON.stringify(threads, null, 2)}\n`);
+    const tempPath = `${this.filePath}.${process.pid}.${Date.now()}.${randomBytes(6).toString("hex")}.tmp`;
+    await writeFile(tempPath, `${JSON.stringify(threads, null, 2)}\n`);
+    await rename(tempPath, this.filePath);
   }
 }
 
