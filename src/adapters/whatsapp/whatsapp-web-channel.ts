@@ -18,9 +18,16 @@ import type {
 const { Client, LocalAuth, MessageMedia } = pkg;
 const maxSignedIntTimerDelayMs = 2_147_483_647;
 
+export type WhatsAppForwardFilter = {
+  enabled?: boolean;
+  whitelist?: string[];
+  blacklist?: string[];
+};
+
 export type WhatsAppWebChannelConfig = {
   phoneNumber: string;
   sendTimeoutMs?: number;
+  forwardStatuses?: WhatsAppForwardFilter;
 };
 
 type RawWhatsAppMedia = {
@@ -32,6 +39,7 @@ type RawWhatsAppMedia = {
 type RawWhatsAppMessage = {
   id: { _serialized: string };
   from: string;
+  author?: string;
   body: string;
   timestamp: number;
   hasMedia?: boolean;
@@ -43,12 +51,14 @@ export class WhatsAppWebChannel implements InboundChannel, WhatsAppSender, Whats
   private readonly client: InstanceType<typeof Client>;
   private readonly phoneNumber: string;
   private readonly sendTimeoutMs: number;
+  private readonly forwardStatuses: WhatsAppForwardFilter;
   private handler?: InboundMessageHandler;
   private pairingCodeRequests = 0;
 
   constructor(config: WhatsAppWebChannelConfig) {
     this.phoneNumber = config.phoneNumber;
     this.sendTimeoutMs = config.sendTimeoutMs ?? appDefaults.whatsappSendTimeoutMs;
+    this.forwardStatuses = config.forwardStatuses ?? {};
     this.client = new Client({
       authStrategy: new LocalAuth(),
       puppeteer: {
@@ -107,6 +117,10 @@ export class WhatsAppWebChannel implements InboundChannel, WhatsAppSender, Whats
       }
 
       try {
+        if (!this.shouldHandle(rawMessage)) {
+          return;
+        }
+
         await this.handler(await this.toInboundMessage(rawMessage));
       } catch (error) {
         logWhatsApp(`Message handler failed: ${formatEventValue(error)}`);
@@ -190,6 +204,17 @@ export class WhatsAppWebChannel implements InboundChannel, WhatsAppSender, Whats
     }
   }
 
+  private shouldHandle(rawMessage: RawWhatsAppMessage): boolean {
+    if (rawMessage.from !== "status@broadcast") {
+      return true;
+    }
+
+    return Boolean(this.forwardStatuses.enabled) && isAllowed(
+      rawMessage.author ?? rawMessage.from,
+      this.forwardStatuses,
+    );
+  }
+
   private async toInboundMessage(
     rawMessage: RawWhatsAppMessage,
   ): Promise<InboundMessage> {
@@ -227,6 +252,14 @@ export class WhatsAppWebChannel implements InboundChannel, WhatsAppSender, Whats
       ...(media.filename ? { filename: media.filename } : {}),
     }];
   }
+}
+
+function isAllowed(id: string, filter: WhatsAppForwardFilter): boolean {
+  if (filter.whitelist?.length) {
+    return filter.whitelist.includes(id);
+  }
+
+  return !filter.blacklist?.includes(id);
 }
 
 function browserArgs(): string[] {
@@ -284,3 +317,4 @@ function formatEventValue(value: unknown): string {
     return String(value);
   }
 }
+

@@ -69,4 +69,62 @@ describe("WhatsAppWebChannel", () => {
     })).resolves.toBeUndefined();
     expect(log.mock.calls.flat().join("\n")).toContain("Message handler failed");
   });
+
+  it("filters WhatsApp status messages by status settings", async () => {
+    const received: unknown[] = [];
+    const channel = new WhatsAppWebChannel({
+      phoneNumber: "12025550108",
+      forwardStatuses: {
+        enabled: true,
+        whitelist: ["12025550108@c.us"],
+      },
+    });
+    channel.onMessage(async message => {
+      received.push(message);
+    });
+
+    await channel.start();
+    await emitMessage({
+      from: "status@broadcast",
+      author: "441234567890@c.us",
+      body: "skip this status",
+    });
+    await emitMessage({
+      from: "status@broadcast",
+      author: "12025550108@c.us",
+      body: "forward this status",
+    });
+
+    expect(received).toHaveLength(1);
+  });
+
+  it("ignores WhatsApp status messages by default", async () => {
+    const received: unknown[] = [];
+    const channel = new WhatsAppWebChannel({ phoneNumber: "12025550108" });
+    channel.onMessage(async message => {
+      received.push(message);
+    });
+
+    await channel.start();
+    await emitMessage({
+      from: "status@broadcast",
+      author: "12025550108@c.us",
+      body: "status",
+    });
+
+    expect(received).toEqual([]);
+  });
 });
+
+async function emitMessage(overrides: {
+  from: string;
+  author?: string;
+  body: string;
+}): Promise<void> {
+  await whatsappMock.clients[0]?.handlers.get("message")?.({
+    id: { _serialized: "message-1" },
+    timestamp: 1,
+    ...overrides,
+  });
+}
+
