@@ -1,6 +1,10 @@
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import { RequestTransactionCategoryFromEmail } from "./automations/transaction-category-request/request-from-email.js";
 import { ImapEmailInbox } from "./adapters/email/imap-email-inbox.js";
+import {
+  defaultWhatsAppEmailThreadStorePath,
+  JsonWhatsAppEmailThreadStore,
+} from "./adapters/email/json-whatsapp-email-thread-store.js";
 import { SmtpEmailSender } from "./adapters/email/smtp-email-sender.js";
 import { ConsoleAppLogger } from "./adapters/logging/console-app-logger.js";
 import { createSecretStore } from "./adapters/secrets/secret-store-factory.js";
@@ -11,6 +15,7 @@ import { ForwardEmailToWhatsApp } from "./use-cases/forward-email-to-whatsapp.js
 import { ForwardMessageToEmail } from "./use-cases/forward-message-to-email.js";
 import type { EmailAutomationHandler } from "./use-cases/process-email-automations.js";
 import { ProcessEmailAutomations } from "./use-cases/process-email-automations.js";
+import { ReplyEmailToWhatsApp } from "./use-cases/reply-email-to-whatsapp.js";
 
 loadRuntimeEnv();
 
@@ -18,11 +23,14 @@ const secretStore = await createSecretStore();
 const smtpPassword = await loadSmtpPassword(secretStore);
 const config = loadConfig(process.env, { smtpPassword });
 const logger = new ConsoleAppLogger();
+const threadStore = new JsonWhatsAppEmailThreadStore(
+  defaultWhatsAppEmailThreadStorePath(process.env),
+);
 
 const emailSender = new SmtpEmailSender(config.smtp);
 const forwardMessageToEmail = new ForwardMessageToEmail(
   emailSender,
-  config.email,
+  { ...config.email, threadStore },
   logger,
 );
 const whatsapp = new WhatsAppWebChannel(config.whatsapp);
@@ -39,6 +47,11 @@ if (config.emailToWhatsapp.enabled || config.transactionCategoryRequest.enabled)
   const inbox = new ImapEmailInbox(config.imap);
 
   if (config.emailToWhatsapp.enabled) {
+    emailAutomationHandlers.push(
+      new ReplyEmailToWhatsApp(inbox, whatsapp, threadStore, logger, {
+        ignoreFrom: config.email.from,
+      }),
+    );
     emailAutomationHandlers.push(new ForwardEmailToWhatsApp(inbox, whatsapp, {
       subjectPrefix: config.emailToWhatsapp.subjectPrefix,
       extraImageNotification: {
