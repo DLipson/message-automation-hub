@@ -7,6 +7,8 @@ import type {
   InboundMessageHandler,
 } from "../../ports/inbound-channel.js";
 import type {
+  WhatsAppChatMessage,
+  WhatsAppChatSender,
   WhatsAppDirectImage,
   WhatsAppDirectMessage,
   WhatsAppSender,
@@ -36,7 +38,7 @@ type RawWhatsAppMessage = {
   _data?: { notifyName?: string };
 };
 
-export class WhatsAppWebChannel implements InboundChannel, WhatsAppSender {
+export class WhatsAppWebChannel implements InboundChannel, WhatsAppSender, WhatsAppChatSender {
   private readonly client: InstanceType<typeof Client>;
   private readonly phoneNumber: string;
   private handler?: InboundMessageHandler;
@@ -120,13 +122,21 @@ export class WhatsAppWebChannel implements InboundChannel, WhatsAppSender {
 
   async sendMessage(message: WhatsAppDirectMessage): Promise<void> {
     const chatId = await this.resolveChatId(message.phoneNumber);
+    await this.sendChatMessage({ chatId, text: message.text });
+  }
+
+  async sendChatMessage(message: WhatsAppChatMessage): Promise<void> {
     const sentMessage = await this.sendWithContext(
-      this.client.sendMessage(chatId, message.text, { waitUntilMsgSent: true }),
-      `WhatsApp text send to ${chatId}`,
+      this.client.sendMessage(message.chatId, message.text, {
+        waitUntilMsgSent: true,
+      }),
+      `WhatsApp text send to ${message.chatId}`,
     );
 
     if (!sentMessage) {
-      throw new Error(`WhatsApp text send to ${chatId} returned no message`);
+      throw new Error(
+        `WhatsApp text send to ${message.chatId} returned no message`,
+      );
     }
   }
 
@@ -264,4 +274,3 @@ function formatEventValue(value: unknown): string {
 
   return JSON.stringify(value) ?? String(value);
 }
-

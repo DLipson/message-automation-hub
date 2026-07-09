@@ -11,7 +11,16 @@ export type WhatsAppDirectImage = {
   image: MediaAttachment;
 };
 
+export type WhatsAppChatMessage = {
+  chatId: string;
+  text: string;
+};
+
 export interface WhatsAppSender {
   sendMessage(message: WhatsAppDirectMessage): Promise<void>;
   sendImage(message: WhatsAppDirectImage): Promise<void>;
+}
+
+export interface WhatsAppChatSender {
+  sendChatMessage(message: WhatsAppChatMessage): Promise<void>;
 }

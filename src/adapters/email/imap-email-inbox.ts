@@ -44,6 +44,7 @@ export class ImapEmailInbox implements EmailInbox {
 
         const parsed = await simpleParser(message.source);
         const attachments = parsed.attachments.map(toMediaAttachment);
+        const references = referencesFor(parsed.references);
 
         const email: FetchedEmail = {
           id: String(message.uid),
@@ -52,6 +53,9 @@ export class ImapEmailInbox implements EmailInbox {
           text: parsed.text ?? "",
           receivedAt: parsed.date ?? new Date(),
           ...(attachments.length > 0 ? { attachments } : {}),
+          ...(parsed.messageId ? { messageId: parsed.messageId } : {}),
+          ...(parsed.inReplyTo ? { inReplyTo: parsed.inReplyTo } : {}),
+          ...(references.length > 0 ? { references } : {}),
         };
 
         if (parsed.from?.text) {
@@ -112,6 +116,14 @@ function toMediaAttachment(attachment: Attachment): MediaAttachment {
     contentType: attachment.contentType,
     ...(attachment.filename ? { filename: attachment.filename } : {}),
   };
+}
+
+function referencesFor(references: string[] | string | undefined): string[] {
+  if (!references) {
+    return [];
+  }
+
+  return Array.isArray(references) ? references : [references];
 }
 
 function formatError(error: unknown): string {

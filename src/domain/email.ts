@@ -7,4 +7,7 @@ export type InboundEmail = {
   text: string;
   receivedAt: Date;
   attachments?: MediaAttachment[];
+  messageId?: string;
+  inReplyTo?: string;
+  references?: string[];
 };
