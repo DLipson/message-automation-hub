@@ -124,8 +124,10 @@ describe("loadConfig", () => {
   });
 
   it("uses the external secrets folder as the default env file path", () => {
-    expect(defaultEnvFilePath("C:\\Users\\Dovid L")).toBe(
-      join("C:\\Users\\Dovid L", "secrets", "message-automation-hub", ".env"),
+    const home = join("home", "example-user");
+
+    expect(defaultEnvFilePath(home)).toBe(
+      join(home, "secrets", "message-automation-hub", ".env"),
     );
   });
 

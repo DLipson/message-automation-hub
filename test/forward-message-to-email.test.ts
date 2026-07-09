@@ -30,7 +30,7 @@ class CapturingThreadStore implements WhatsAppEmailThreadStore {
   readonly thread: WhatsAppEmailThread = {
     token: "lid123",
     chatId: "127513921597547@lid",
-    subject: "WhatsApp: Dovid [wa:lid123]",
+    subject: "WhatsApp: Alice [wa:lid123]",
     rootMessageId: "<wa.lid123@message-automation-hub.local>",
   };
 
@@ -164,7 +164,7 @@ describe("ForwardMessageToEmail", () => {
       channel: "whatsapp",
       from: {
         id: "127513921597547@lid",
-        displayName: "Dovid",
+        displayName: "Alice",
       },
       text: "Can you call me?",
       receivedAt: new Date("2026-06-21T08:00:00.000Z"),
@@ -172,9 +172,9 @@ describe("ForwardMessageToEmail", () => {
 
     expect(threadStore.created).toEqual([{
       chatId: "127513921597547@lid",
-      displayName: "Dovid",
+      displayName: "Alice",
     }]);
-    expect(emailSender.sent[0]?.subject).toBe("WhatsApp: Dovid [wa:lid123]");
+    expect(emailSender.sent[0]?.subject).toBe("WhatsApp: Alice [wa:lid123]");
   });
 
   it("forwards up to five WhatsApp images as email attachments", async () => {

@@ -66,14 +66,14 @@ class FakeThreadStore implements WhatsAppEmailThreadStore {
 const thread: WhatsAppEmailThread = {
   token: "abc123",
   chatId: "127513921597547@lid",
-  subject: "WhatsApp: Dovid [wa:abc123]",
+  subject: "WhatsApp: Alice [wa:abc123]",
   rootMessageId: "<wa.abc123@message-automation-hub.local>",
 };
 
 describe("ReplyEmailToWhatsApp", () => {
   it("sends an email reply matched by subject token back to the stored WhatsApp chat", async () => {
     const email = emailCommand({
-      subject: "Re: WhatsApp: Dovid [wa:abc123]",
+      subject: "Re: WhatsApp: Alice [wa:abc123]",
       text: ["Sure, I can do that.", "", replyMarker, "", "quoted text"].join("\n"),
     });
     const inbox = new FakeEmailInbox();
@@ -140,7 +140,7 @@ describe("ReplyEmailToWhatsApp", () => {
 
   it("marks empty thread replies processed without sending WhatsApp", async () => {
     const email = emailCommand({
-      subject: "Re: WhatsApp: Dovid [wa:abc123]",
+      subject: "Re: WhatsApp: Alice [wa:abc123]",
       text: ["   ", replyMarker, "quoted text"].join("\n"),
     });
     const inbox = new FakeEmailInbox();
@@ -164,7 +164,7 @@ describe("ReplyEmailToWhatsApp", () => {
 
   it("does not mark the email processed when WhatsApp sending fails", async () => {
     const email = emailCommand({
-      subject: "Re: WhatsApp: Dovid [wa:abc123]",
+      subject: "Re: WhatsApp: Alice [wa:abc123]",
       text: "Please retry later",
     });
     const inbox = new FakeEmailInbox();
@@ -193,8 +193,8 @@ describe("ReplyEmailToWhatsApp", () => {
     await expect(handler.handle(emailCommand({
       from: "Message Hub <bot@example.com>",
       messageId: "<wa.abc123.bWVzc2FnZS0x@message-automation-hub.local>",
-      subject: "WhatsApp: Dovid [wa:abc123]",
-      text: "Dovid:\n\nOriginal message",
+      subject: "WhatsApp: Alice [wa:abc123]",
+      text: "Alice:\n\nOriginal message",
     }), { sentWhatsAppImage: false })).resolves.toBe(false);
 
     expect(whatsapp.sent).toEqual([]);
@@ -214,8 +214,8 @@ describe("ReplyEmailToWhatsApp", () => {
 
     await expect(handler.handle(emailCommand({
       from: "Message Hub <bot@example.com>",
-      subject: "WhatsApp: Dovid [wa:abc123]",
-      text: "Dovid:\n\nOriginal message",
+      subject: "WhatsApp: Alice [wa:abc123]",
+      text: "Alice:\n\nOriginal message",
     }), { sentWhatsAppImage: false })).resolves.toBe(false);
 
     expect(whatsapp.sent).toEqual([]);

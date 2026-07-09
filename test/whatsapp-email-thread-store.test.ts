@@ -1,6 +1,6 @@
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import {
   defaultWhatsAppEmailThreadStorePath,
@@ -28,14 +28,14 @@ describe("JsonWhatsAppEmailThreadStore", () => {
     const filePath = await tempPath("threads.json");
     const store = new JsonWhatsAppEmailThreadStore(filePath);
 
-    const thread = await store.getOrCreate("127513921597547@lid", "Dovid");
+    const thread = await store.getOrCreate("127513921597547@lid", "Alice");
     const sameThread = await new JsonWhatsAppEmailThreadStore(filePath)
-      .getOrCreate("127513921597547@lid", "Dovid changed");
+      .getOrCreate("127513921597547@lid", "Alice changed");
 
     expect(sameThread).toEqual(thread);
     await expect(store.findByToken(thread.token)).resolves.toEqual(thread);
     await expect(store.findByMessageId(thread.rootMessageId)).resolves.toEqual(thread);
-    expect(thread.subject).toBe(`WhatsApp: Dovid [wa:${thread.token}]`);
+    expect(thread.subject).toBe(`WhatsApp: Alice [wa:${thread.token}]`);
   });
 
   it("returns null when no stored thread matches", async () => {
@@ -54,15 +54,19 @@ describe("JsonWhatsAppEmailThreadStore", () => {
   });
 
   it("uses an explicit thread store path when configured", () => {
+    const filePath = join("secrets", "threads.json");
+
     expect(defaultWhatsAppEmailThreadStorePath({
-      EMAIL_THREAD_STORE_FILE: "C:\\secrets\\threads.json",
-    })).toBe("C:\\secrets\\threads.json");
+      EMAIL_THREAD_STORE_FILE: filePath,
+    })).toBe(filePath);
   });
 
   it("defaults the thread store next to the configured env file", () => {
+    const envFilePath = join("secrets", "message-hub", ".env");
+
     expect(defaultWhatsAppEmailThreadStorePath({
-      MESSAGE_HUB_ENV_FILE: "C:\\secrets\\message-hub\\.env",
-    })).toBe(join("C:\\secrets\\message-hub", "whatsapp-email-threads.json"));
+      MESSAGE_HUB_ENV_FILE: envFilePath,
+    })).toBe(join(dirname(envFilePath), "whatsapp-email-threads.json"));
   });
 });
 
@@ -71,17 +75,17 @@ describe("WhatsApp email thread helpers", () => {
     const thread = {
       token: "abc_123-x",
       chatId: "127513921597547@lid",
-      subject: "WhatsApp: Dovid [wa:abc_123-x]",
+      subject: "WhatsApp: Alice [wa:abc_123-x]",
       rootMessageId: "<wa.abc_123-x@message-automation-hub.local>",
     };
 
-    expect(tokenFromSubject("Re: WhatsApp: Dovid [wa:abc_123-x]")).toBe("abc_123-x");
+    expect(tokenFromSubject("Re: WhatsApp: Alice [wa:abc_123-x]")).toBe("abc_123-x");
     expect(tokenFromMessageId(forwardedMessageId(thread, "message-1"))).toBe("abc_123-x");
     expect(tokenFromMessageId(thread.rootMessageId)).toBe("abc_123-x");
   });
 
   it("returns null for non-thread subjects and message ids", () => {
-    expect(tokenFromSubject("Re: WhatsApp: Dovid")).toBeNull();
+    expect(tokenFromSubject("Re: WhatsApp: Alice")).toBeNull();
     expect(tokenFromMessageId("<ordinary@example.com>")).toBeNull();
   });
 

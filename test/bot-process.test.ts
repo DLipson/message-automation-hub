@@ -23,7 +23,7 @@ describe("BotProcess", () => {
       {
         command: "npm",
         args: ["run", "dev"],
-        cwd: "C:\\project",
+        cwd: "project",
         env: {},
       },
       {
@@ -47,7 +47,7 @@ describe("BotProcess", () => {
       {
         command: "npm",
         args: ["run", "dev"],
-        cwd: "C:\\project",
+        cwd: "project",
         env: {},
       },
       {
@@ -67,7 +67,7 @@ describe("BotProcess", () => {
     const bot = new BotProcess({
       command: "npm",
       args: ["run", "dev"],
-      cwd: "C:\\project",
+      cwd: "project",
       env: {},
     });
 
