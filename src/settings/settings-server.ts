@@ -1,18 +1,34 @@
 import { randomBytes } from "node:crypto";
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
-import { defaultEnvFilePath, loadRuntimeEnv, loadSmtpPassword } from "../config.js";
+import {
+  appDefaults,
+  defaultEnvFilePath,
+  loadRuntimeEnv,
+  loadSmtpPassword,
+} from "../config.js";
 import { SmtpEmailSender } from "../adapters/email/smtp-email-sender.js";
-import { createSecretStore } from "../adapters/secrets/secret-store-factory.js";
+import {
+  createSecretStore,
+  secretStoreModes,
+} from "../adapters/secrets/secret-store-factory.js";
 import { EnvFileSettingsStore } from "./env-file-settings-store.js";
 import { SecretStatus } from "./secret-status.js";
 import { BotProcess } from "./bot-process.js";
-import { settingsToEmailConfig, type AppSettings } from "./app-settings.js";
+import {
+  settingsToEmailConfig,
+  validateAppSettings,
+  type AppSettings,
+} from "./app-settings.js";
 
 const host = "127.0.0.1";
+const maxRequestBodyBytes = 100_000;
+const botStatusPollIntervalMs = 1500;
 const port = Number(process.env.MESSAGE_HUB_SETTINGS_PORT ?? 0);
 const token = randomBytes(24).toString("hex");
 const botControlToken = randomBytes(24).toString("hex");
-const botControlPort = Number(process.env.MESSAGE_HUB_BOT_CONTROL_PORT ?? 8788);
+const botControlPort = Number(
+  process.env.MESSAGE_HUB_BOT_CONTROL_PORT ?? appDefaults.botControlPort,
+);
 const envFilePath = process.env.MESSAGE_HUB_ENV_FILE ?? defaultEnvFilePath();
 loadRuntimeEnv();
 const settingsStore = new EnvFileSettingsStore(envFilePath);
@@ -82,6 +98,7 @@ async function route(
 
   if (request.method === "PUT" && url.pathname === "/api/settings") {
     const body = await readJson<{ settings: AppSettings }>(request);
+    validateAppSettings(body.settings);
     await settingsStore.write(body.settings);
     sendJson(response, 200, await readState());
     return;
@@ -196,7 +213,7 @@ async function readJson<T>(request: IncomingMessage): Promise<T> {
   for await (const chunk of request) {
     body += String(chunk);
 
-    if (body.length > 100_000) {
+    if (body.length > maxRequestBodyBytes) {
       throw new Error("Request body is too large");
     }
   }
@@ -234,6 +251,12 @@ function sendText(
     "cache-control": "no-store",
   });
   response.end(body);
+}
+
+function secretStoreOptions(): string {
+  return secretStoreModes
+    .map(mode => '                    <option value="' + mode + '">' + mode + '</option>')
+    .join("\n");
 }
 
 function settingsPage(pageToken: string): string {
@@ -490,9 +513,7 @@ function settingsPage(pageToken: string): string {
                 <label>
                   Secret store
                   <select name="messageHubSecretStore">
-                    <option value="auto">auto</option>
-                    <option value="windows-credential">windows-credential</option>
-                    <option value="file">file</option>
+${secretStoreOptions()}
                   </select>
                 </label>
                 <label>
@@ -525,6 +546,10 @@ function settingsPage(pageToken: string): string {
                 <label>
                   Email to
                   <input name="emailTo" autocomplete="email">
+                </label>
+                <label>
+                  Email message ID domain
+                  <input name="emailMessageIdDomain" autocomplete="off">
                 </label>
                 <label>
                   Email to WhatsApp
@@ -663,6 +688,7 @@ function settingsPage(pageToken: string): string {
           smtpUser: form.smtpUser.value.trim(),
           emailFrom: form.emailFrom.value.trim(),
           emailTo: form.emailTo.value.trim(),
+          emailMessageIdDomain: form.emailMessageIdDomain.value.trim(),
           emailToWhatsappEnabled: form.emailToWhatsappEnabled.value === "true",
           emailToWhatsappSubjectPrefix: form.emailToWhatsappSubjectPrefix.value.trim(),
           emailToWhatsappPollSeconds: form.emailToWhatsappPollSeconds.value.trim(),
@@ -854,7 +880,7 @@ function settingsPage(pageToken: string): string {
           renderBot(await api("/api/bot"));
         } catch {
         }
-      }, 1500);
+      }, ${botStatusPollIntervalMs});
 
       refresh().catch(error => {
         settingsNotice.className = "notice error";

@@ -2,7 +2,13 @@ import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { afterEach, describe, expect, it } from "vitest";
+import { appDefaults } from "../src/config.js";
 import { EnvFileSettingsStore } from "../src/settings/env-file-settings-store.js";
+import {
+  emptyAppSettings,
+  envToAppSettings,
+  validateAppSettings,
+} from "../src/settings/app-settings.js";
 
 let tempDirs: string[] = [];
 
@@ -18,11 +24,13 @@ describe("EnvFileSettingsStore", () => {
     const store = new EnvFileSettingsStore(await tempPath("missing.env"));
 
     await expect(store.read()).resolves.toMatchObject({
-      smtpHost: "smtp.gmail.com",
-      smtpPort: "465",
-      smtpSecure: true,
+      smtpHost: appDefaults.smtpHost,
+      smtpPort: String(appDefaults.smtpPort),
+      smtpSecure: appDefaults.smtpSecure,
+      emailMessageIdDomain: appDefaults.emailMessageIdDomain,
       transactionCategoryRequestEnabled: false,
-      transactionCategoryRequestSubjectPrefix: "TXCAT:",
+      transactionCategoryRequestSubjectPrefix:
+        appDefaults.transactionCategoryRequestSubjectPrefix,
       transactionCategoryRequestRecipientPhoneNumber: "",
     });
   });
@@ -41,6 +49,7 @@ describe("EnvFileSettingsStore", () => {
       smtpUser: "bot@example.com",
       emailFrom: "bot@example.com",
       emailTo: "me@example.com",
+      emailMessageIdDomain: "mail.example.test",
       emailToWhatsappEnabled: true,
       emailToWhatsappSubjectPrefix: "WA:",
       emailToWhatsappPollSeconds: "30",
@@ -63,6 +72,7 @@ describe("EnvFileSettingsStore", () => {
       smtpUser: "bot@example.com",
       emailFrom: "bot@example.com",
       emailTo: "me@example.com",
+      emailMessageIdDomain: "mail.example.test",
       emailToWhatsappEnabled: true,
       emailToWhatsappSubjectPrefix: "WA:",
       emailToWhatsappPollSeconds: "30",
@@ -76,6 +86,36 @@ describe("EnvFileSettingsStore", () => {
     });
 
     await expect(readFile(filePath, "utf8")).resolves.not.toContain("PASS");
+  });
+
+  it("rejects invalid env booleans", () => {
+    expect(() => envToAppSettings({ SMTP_SECURE: "yes" })).toThrow(
+      "SMTP_SECURE must be true or false",
+    );
+  });
+
+  it("validates settings before they are persisted by the server", () => {
+    expect(() => validateAppSettings({
+      ...emptyAppSettings,
+      smtpPort: "abc",
+    })).toThrow("SMTP_PORT must be a positive integer");
+
+    expect(() => validateAppSettings({
+      ...emptyAppSettings,
+      imapPort: "abc",
+    })).toThrow("IMAP_PORT must be a positive integer");
+
+    expect(() => validateAppSettings({
+      ...emptyAppSettings,
+      emailToWhatsappPollSeconds: "abc",
+    })).toThrow("EMAIL_TO_WHATSAPP_POLL_SECONDS must be a positive integer");
+
+    expect(() => validateAppSettings({
+      ...emptyAppSettings,
+      messageHubSecretStore: "bogus",
+    } as typeof emptyAppSettings)).toThrow(
+      "MESSAGE_HUB_SECRET_STORE must be auto, windows-credential, or file",
+    );
   });
 });
 

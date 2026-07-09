@@ -1,6 +1,7 @@
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import {
+  appDefaults,
   defaultEnvFilePath,
   loadConfig,
   loadSmtpPassword,
@@ -33,22 +34,23 @@ describe("loadConfig", () => {
       email: {
         from: "bot@example.com",
         to: "me@example.com",
+        messageIdDomain: appDefaults.emailMessageIdDomain,
       },
       imap: {
-        host: "imap.gmail.com",
-        port: 993,
-        secure: true,
+        host: appDefaults.imapHost,
+        port: appDefaults.imapPort,
+        secure: appDefaults.imapSecure,
         user: "bot@example.com",
         pass: "secret",
       },
       emailToWhatsapp: {
         enabled: false,
-        subjectPrefix: "WA:",
-        pollIntervalMs: 30000,
+        subjectPrefix: appDefaults.emailToWhatsappSubjectPrefix,
+        pollIntervalMs: appDefaults.emailToWhatsappPollSeconds * 1000,
       },
       transactionCategoryRequest: {
         enabled: false,
-        subjectPrefix: "TXCAT:",
+        subjectPrefix: appDefaults.transactionCategoryRequestSubjectPrefix,
         recipientPhoneNumber: "",
       },
     });
@@ -59,6 +61,7 @@ describe("loadConfig", () => {
       loadConfig(
         {
           ...validEnv,
+          EMAIL_MESSAGE_ID_DOMAIN: "mail.example.test",
           EMAIL_TO_WHATSAPP_ENABLED: "true",
           EMAIL_TO_WHATSAPP_SUBJECT_PREFIX: "SEND:",
           EMAIL_TO_WHATSAPP_POLL_SECONDS: "10",
@@ -74,6 +77,9 @@ describe("loadConfig", () => {
         { smtpPassword: "secret" },
       ),
     ).toMatchObject({
+      email: {
+        messageIdDomain: "mail.example.test",
+      },
       imap: {
         host: "imap.example.com",
         port: 993,
@@ -114,13 +120,34 @@ describe("loadConfig", () => {
     ).toThrow("Missing required environment variable: SMTP_USER");
   });
 
-  it("rejects invalid SMTP ports", () => {
+  it("rejects invalid numeric and boolean settings", () => {
     expect(() =>
       loadConfig({
         ...validEnv,
         SMTP_PORT: "abc",
       }, { smtpPassword: "secret" }),
     ).toThrow("SMTP_PORT must be a positive integer");
+
+    expect(() =>
+      loadConfig({
+        ...validEnv,
+        IMAP_PORT: "abc",
+      }, { smtpPassword: "secret" }),
+    ).toThrow("IMAP_PORT must be a positive integer");
+
+    expect(() =>
+      loadConfig({
+        ...validEnv,
+        EMAIL_TO_WHATSAPP_POLL_SECONDS: "abc",
+      }, { smtpPassword: "secret" }),
+    ).toThrow("EMAIL_TO_WHATSAPP_POLL_SECONDS must be a positive integer");
+
+    expect(() =>
+      loadConfig({
+        ...validEnv,
+        SMTP_SECURE: "yes",
+      }, { smtpPassword: "secret" }),
+    ).toThrow("SMTP_SECURE must be true or false");
   });
 
   it("uses the external secrets folder as the default env file path", () => {

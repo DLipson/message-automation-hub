@@ -5,6 +5,22 @@ import { config as loadDotenv } from "dotenv";
 import type { SecretRef, SecretStore } from "./ports/secret-store.js";
 
 export const PROJECT_NAME = "message-automation-hub";
+export const appDefaults = {
+  messageHubSecretStore: "auto",
+  smtpHost: "smtp.gmail.com",
+  smtpPort: 465,
+  smtpSecure: true,
+  imapHost: "imap.gmail.com",
+  imapPort: 993,
+  imapSecure: true,
+  emailToWhatsappSubjectPrefix: "WA:",
+  emailToWhatsappPollSeconds: 30,
+  transactionCategoryRequestSubjectPrefix: "TXCAT:",
+  botControlPort: 8788,
+  whatsappSendTimeoutMs: 90_000,
+  emailMessageIdDomain: "message-automation-hub.local",
+} as const;
+
 export const SMTP_PASSWORD_SECRET: SecretRef = {
   service: PROJECT_NAME,
   account: "smtp-password",
@@ -24,6 +40,7 @@ export type AppConfig = {
   email: {
     from: string;
     to: string;
+    messageIdDomain: string;
   };
   imap: {
     host: string;
@@ -89,24 +106,31 @@ export function loadConfig(
     email: {
       from: requireEnv(env, "EMAIL_FROM"),
       to: requireEnv(env, "EMAIL_TO"),
+      messageIdDomain:
+        optionalEnv(env, "EMAIL_MESSAGE_ID_DOMAIN") ??
+        appDefaults.emailMessageIdDomain,
     },
     imap: {
-      host: optionalEnv(env, "IMAP_HOST") ?? "imap.gmail.com",
-      port: readOptionalPort(env, "IMAP_PORT") ?? 993,
-      secure: readOptionalBoolean(env, "IMAP_SECURE") ?? true,
+      host: optionalEnv(env, "IMAP_HOST") ?? appDefaults.imapHost,
+      port: readOptionalPort(env, "IMAP_PORT") ?? appDefaults.imapPort,
+      secure: readOptionalBoolean(env, "IMAP_SECURE") ?? appDefaults.imapSecure,
       user: optionalEnv(env, "IMAP_USER") ?? requireEnv(env, "SMTP_USER"),
       pass: secrets.smtpPassword,
     },
     emailToWhatsapp: {
       enabled: readOptionalBoolean(env, "EMAIL_TO_WHATSAPP_ENABLED") ?? false,
-      subjectPrefix: optionalEnv(env, "EMAIL_TO_WHATSAPP_SUBJECT_PREFIX") ?? "WA:",
+      subjectPrefix:
+        optionalEnv(env, "EMAIL_TO_WHATSAPP_SUBJECT_PREFIX") ??
+        appDefaults.emailToWhatsappSubjectPrefix,
       pollIntervalMs:
-        (readOptionalPort(env, "EMAIL_TO_WHATSAPP_POLL_SECONDS") ?? 30) * 1000,
+        (readOptionalPort(env, "EMAIL_TO_WHATSAPP_POLL_SECONDS") ??
+          appDefaults.emailToWhatsappPollSeconds) * 1000,
     },
     transactionCategoryRequest: {
       enabled: transactionCategoryRequestEnabled,
       subjectPrefix:
-        optionalEnv(env, "TRANSACTION_CATEGORY_REQUEST_SUBJECT_PREFIX") ?? "TXCAT:",
+        optionalEnv(env, "TRANSACTION_CATEGORY_REQUEST_SUBJECT_PREFIX") ??
+        appDefaults.transactionCategoryRequestSubjectPrefix,
       recipientPhoneNumber: readOptionalPhoneNumber(
         env,
         "TRANSACTION_CATEGORY_REQUEST_RECIPIENT_PHONE_NUMBER",

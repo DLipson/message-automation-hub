@@ -4,8 +4,9 @@ import { PROJECT_NAME } from "../../config.js";
 import type { SecretStore } from "../../ports/secret-store.js";
 import { FileSecretStore } from "./file-secret-store.js";
 
-export type SecretStoreKind = "windows-credential" | "file";
-export type SecretStoreMode = SecretStoreKind | "auto";
+export const secretStoreModes = ["auto", "windows-credential", "file"] as const;
+export type SecretStoreMode = typeof secretStoreModes[number];
+export type SecretStoreKind = Exclude<SecretStoreMode, "auto">;
 
 export type SecretStoreSelection = {
   kind: SecretStoreKind;
@@ -58,14 +59,14 @@ export async function createSecretStore(
   return new OsCredentialSecretStore();
 }
 
+export function isSecretStoreMode(value: string): value is SecretStoreMode {
+  return secretStoreModes.includes(value as SecretStoreMode);
+}
+
 function readSecretStoreMode(value: string | undefined): SecretStoreMode {
-  const mode = value?.trim();
+  const mode = value?.trim() || "auto";
 
-  if (!mode || mode === "auto") {
-    return "auto";
-  }
-
-  if (mode === "windows-credential" || mode === "file") {
+  if (isSecretStoreMode(mode)) {
     return mode;
   }
 
