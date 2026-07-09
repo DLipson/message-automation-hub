@@ -26,9 +26,17 @@ export const SMTP_PASSWORD_SECRET: SecretRef = {
   account: "smtp-password",
 };
 
+export type WhatsAppForwardFilterConfig = {
+  enabled: boolean;
+  whitelist: string[];
+  blacklist: string[];
+};
+
 export type AppConfig = {
   whatsapp: {
     phoneNumber: string;
+    forwardStatuses: WhatsAppForwardFilterConfig;
+    forwardGroups: WhatsAppForwardFilterConfig;
   };
   smtp: {
     host: string;
@@ -95,6 +103,18 @@ export function loadConfig(
   return {
     whatsapp: {
       phoneNumber: requireEnv(env, "WHATSAPP_PHONE_NUMBER"),
+      forwardStatuses: readWhatsAppForwardFilter(
+        env,
+        "WHATSAPP_FORWARD_STATUSES_ENABLED",
+        "WHATSAPP_FORWARD_STATUS_WHITELIST",
+        "WHATSAPP_FORWARD_STATUS_BLACKLIST",
+      ),
+      forwardGroups: readWhatsAppForwardFilter(
+        env,
+        "WHATSAPP_FORWARD_GROUPS_ENABLED",
+        "WHATSAPP_FORWARD_GROUP_WHITELIST",
+        "WHATSAPP_FORWARD_GROUP_BLACKLIST",
+      ),
     },
     smtp: {
       host: requireEnv(env, "SMTP_HOST"),
@@ -138,6 +158,33 @@ export function loadConfig(
       ),
     },
   };
+}
+
+function readWhatsAppForwardFilter(
+  env: NodeJS.ProcessEnv,
+  enabledKey: string,
+  whitelistKey: string,
+  blacklistKey: string,
+): WhatsAppForwardFilterConfig {
+  const whitelist = readOptionalList(env, whitelistKey);
+  const blacklist = readOptionalList(env, blacklistKey);
+
+  if (whitelist.length > 0 && blacklist.length > 0) {
+    throw new Error(`${whitelistKey} and ${blacklistKey} cannot both be set`);
+  }
+
+  return {
+    enabled: readOptionalBoolean(env, enabledKey) ?? false,
+    whitelist,
+    blacklist,
+  };
+}
+
+function readOptionalList(env: NodeJS.ProcessEnv, key: string): string[] {
+  return (optionalEnv(env, key) ?? "")
+    .split(",")
+    .map(value => value.trim())
+    .filter(Boolean);
 }
 
 function requireEnv(env: NodeJS.ProcessEnv, key: string): string {
@@ -237,3 +284,5 @@ function readOptionalPhoneNumber(
 
   return phoneNumber;
 }
+
+

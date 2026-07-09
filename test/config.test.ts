@@ -23,6 +23,16 @@ describe("loadConfig", () => {
     expect(loadConfig(validEnv, { smtpPassword: "secret" })).toEqual({
       whatsapp: {
         phoneNumber: "12025550108",
+        forwardStatuses: {
+          enabled: false,
+          whitelist: [],
+          blacklist: [],
+        },
+        forwardGroups: {
+          enabled: false,
+          whitelist: [],
+          blacklist: [],
+        },
       },
       smtp: {
         host: "smtp.example.com",
@@ -73,10 +83,26 @@ describe("loadConfig", () => {
           TRANSACTION_CATEGORY_REQUEST_SUBJECT_PREFIX: "CAT:",
           TRANSACTION_CATEGORY_REQUEST_RECIPIENT_PHONE_NUMBER:
             "+972 50-123-4567",
+          WHATSAPP_FORWARD_STATUSES_ENABLED: "true",
+          WHATSAPP_FORWARD_STATUS_WHITELIST: "12025550108@c.us, 441234567890@c.us",
+          WHATSAPP_FORWARD_GROUPS_ENABLED: "true",
+          WHATSAPP_FORWARD_GROUP_BLACKLIST: "111@g.us, 222@g.us",
         },
         { smtpPassword: "secret" },
       ),
     ).toMatchObject({
+      whatsapp: {
+        forwardStatuses: {
+          enabled: true,
+          whitelist: ["12025550108@c.us", "441234567890@c.us"],
+          blacklist: [],
+        },
+        forwardGroups: {
+          enabled: true,
+          whitelist: [],
+          blacklist: ["111@g.us", "222@g.us"],
+        },
+      },
       email: {
         messageIdDomain: "mail.example.test",
       },
@@ -98,6 +124,16 @@ describe("loadConfig", () => {
         recipientPhoneNumber: "972501234567",
       },
     });
+  });
+
+  it("rejects both whitelist and blacklist for one WhatsApp forward type", () => {
+    expect(() =>
+      loadConfig({
+        ...validEnv,
+        WHATSAPP_FORWARD_STATUS_WHITELIST: "12025550108@c.us",
+        WHATSAPP_FORWARD_STATUS_BLACKLIST: "441234567890@c.us",
+      }, { smtpPassword: "secret" }),
+    ).toThrow("WHATSAPP_FORWARD_STATUS_WHITELIST and WHATSAPP_FORWARD_STATUS_BLACKLIST cannot both be set");
   });
 
   it("requires a transaction category recipient when the automation is enabled", () => {
@@ -188,3 +224,4 @@ describe("loadConfig", () => {
     );
   });
 });
+
