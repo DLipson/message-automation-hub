@@ -19,6 +19,12 @@ export type AppSettings = {
   emailFrom: string;
   emailTo: string;
   emailMessageIdDomain: string;
+  whatsappForwardStatusesEnabled: boolean;
+  whatsappForwardStatusWhitelist: string;
+  whatsappForwardStatusBlacklist: string;
+  whatsappForwardGroupsEnabled: boolean;
+  whatsappForwardGroupWhitelist: string;
+  whatsappForwardGroupBlacklist: string;
   emailToWhatsappEnabled: boolean;
   emailToWhatsappSubjectPrefix: string;
   emailToWhatsappPollSeconds: string;
@@ -42,6 +48,12 @@ export const emptyAppSettings: AppSettings = {
   emailFrom: "",
   emailTo: "",
   emailMessageIdDomain: appDefaults.emailMessageIdDomain,
+  whatsappForwardStatusesEnabled: false,
+  whatsappForwardStatusWhitelist: "",
+  whatsappForwardStatusBlacklist: "",
+  whatsappForwardGroupsEnabled: false,
+  whatsappForwardGroupWhitelist: "",
+  whatsappForwardGroupBlacklist: "",
   emailToWhatsappEnabled: false,
   emailToWhatsappSubjectPrefix: appDefaults.emailToWhatsappSubjectPrefix,
   emailToWhatsappPollSeconds: String(appDefaults.emailToWhatsappPollSeconds),
@@ -67,6 +79,12 @@ export function appSettingsToEnv(settings: AppSettings): Record<string, string> 
     EMAIL_FROM: settings.emailFrom,
     EMAIL_TO: settings.emailTo,
     EMAIL_MESSAGE_ID_DOMAIN: settings.emailMessageIdDomain,
+    WHATSAPP_FORWARD_STATUSES_ENABLED: String(settings.whatsappForwardStatusesEnabled),
+    WHATSAPP_FORWARD_STATUS_WHITELIST: settings.whatsappForwardStatusWhitelist,
+    WHATSAPP_FORWARD_STATUS_BLACKLIST: settings.whatsappForwardStatusBlacklist,
+    WHATSAPP_FORWARD_GROUPS_ENABLED: String(settings.whatsappForwardGroupsEnabled),
+    WHATSAPP_FORWARD_GROUP_WHITELIST: settings.whatsappForwardGroupWhitelist,
+    WHATSAPP_FORWARD_GROUP_BLACKLIST: settings.whatsappForwardGroupBlacklist,
     EMAIL_TO_WHATSAPP_ENABLED: String(settings.emailToWhatsappEnabled),
     EMAIL_TO_WHATSAPP_SUBJECT_PREFIX: settings.emailToWhatsappSubjectPrefix,
     EMAIL_TO_WHATSAPP_POLL_SECONDS: settings.emailToWhatsappPollSeconds,
@@ -105,6 +123,28 @@ export function envToAppSettings(
     emailTo: env.EMAIL_TO ?? emptyAppSettings.emailTo,
     emailMessageIdDomain:
       env.EMAIL_MESSAGE_ID_DOMAIN ?? emptyAppSettings.emailMessageIdDomain,
+    whatsappForwardStatusesEnabled: readBoolean(
+      env.WHATSAPP_FORWARD_STATUSES_ENABLED,
+      "WHATSAPP_FORWARD_STATUSES_ENABLED",
+      emptyAppSettings.whatsappForwardStatusesEnabled,
+    ),
+    whatsappForwardStatusWhitelist:
+      env.WHATSAPP_FORWARD_STATUS_WHITELIST ??
+      emptyAppSettings.whatsappForwardStatusWhitelist,
+    whatsappForwardStatusBlacklist:
+      env.WHATSAPP_FORWARD_STATUS_BLACKLIST ??
+      emptyAppSettings.whatsappForwardStatusBlacklist,
+    whatsappForwardGroupsEnabled: readBoolean(
+      env.WHATSAPP_FORWARD_GROUPS_ENABLED,
+      "WHATSAPP_FORWARD_GROUPS_ENABLED",
+      emptyAppSettings.whatsappForwardGroupsEnabled,
+    ),
+    whatsappForwardGroupWhitelist:
+      env.WHATSAPP_FORWARD_GROUP_WHITELIST ??
+      emptyAppSettings.whatsappForwardGroupWhitelist,
+    whatsappForwardGroupBlacklist:
+      env.WHATSAPP_FORWARD_GROUP_BLACKLIST ??
+      emptyAppSettings.whatsappForwardGroupBlacklist,
     emailToWhatsappEnabled: readBoolean(
       env.EMAIL_TO_WHATSAPP_ENABLED,
       "EMAIL_TO_WHATSAPP_ENABLED",
@@ -149,6 +189,42 @@ export function validateAppSettings(settings: AppSettings): void {
   assertString(settings.emailFrom, "EMAIL_FROM");
   assertString(settings.emailTo, "EMAIL_TO");
   assertString(settings.emailMessageIdDomain, "EMAIL_MESSAGE_ID_DOMAIN");
+  assertBoolean(
+    settings.whatsappForwardStatusesEnabled,
+    "WHATSAPP_FORWARD_STATUSES_ENABLED",
+  );
+  assertString(
+    settings.whatsappForwardStatusWhitelist,
+    "WHATSAPP_FORWARD_STATUS_WHITELIST",
+  );
+  assertString(
+    settings.whatsappForwardStatusBlacklist,
+    "WHATSAPP_FORWARD_STATUS_BLACKLIST",
+  );
+  assertOnlyOneList(
+    settings.whatsappForwardStatusWhitelist,
+    "WHATSAPP_FORWARD_STATUS_WHITELIST",
+    settings.whatsappForwardStatusBlacklist,
+    "WHATSAPP_FORWARD_STATUS_BLACKLIST",
+  );
+  assertBoolean(
+    settings.whatsappForwardGroupsEnabled,
+    "WHATSAPP_FORWARD_GROUPS_ENABLED",
+  );
+  assertString(
+    settings.whatsappForwardGroupWhitelist,
+    "WHATSAPP_FORWARD_GROUP_WHITELIST",
+  );
+  assertString(
+    settings.whatsappForwardGroupBlacklist,
+    "WHATSAPP_FORWARD_GROUP_BLACKLIST",
+  );
+  assertOnlyOneList(
+    settings.whatsappForwardGroupWhitelist,
+    "WHATSAPP_FORWARD_GROUP_WHITELIST",
+    settings.whatsappForwardGroupBlacklist,
+    "WHATSAPP_FORWARD_GROUP_BLACKLIST",
+  );
   assertBoolean(settings.emailToWhatsappEnabled, "EMAIL_TO_WHATSAPP_ENABLED");
   assertString(
     settings.emailToWhatsappSubjectPrefix,
@@ -229,6 +305,17 @@ function readBoolean(
   throw new Error(`${key} must be true or false`);
 }
 
+function assertOnlyOneList(
+  firstValue: string,
+  firstKey: string,
+  secondValue: string,
+  secondKey: string,
+): void {
+  if (firstValue.trim() && secondValue.trim()) {
+    throw new Error(`${firstKey} and ${secondKey} cannot both be set`);
+  }
+}
+
 function assertString(value: unknown, key: string): asserts value is string {
   if (typeof value !== "string") {
     throw new Error(`${key} must be a string`);
@@ -249,3 +336,4 @@ function assertPositiveIntegerString(value: unknown, key: string): void {
     throw new Error(`${key} must be a positive integer`);
   }
 }
+

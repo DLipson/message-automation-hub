@@ -87,6 +87,14 @@ Incoming WhatsApp text is forwarded to the configured email recipient.
 
 Incoming WhatsApp image media is forwarded as email attachments. The app attaches up to five images from one WhatsApp message. If more images are present, the email body includes a note that additional images were not forwarded. Video is not forwarded.
 
+Rules:
+
+- direct chats are forwarded
+- statuses are disabled by default; enable `WHATSAPP_FORWARD_STATUSES_ENABLED=true`
+- groups are disabled by default; enable `WHATSAPP_FORWARD_GROUPS_ENABLED=true`
+- status and group whitelist/blacklist settings are comma-separated IDs
+- set either a whitelist or a blacklist for one type, not both
+
 ## Email to WhatsApp
 
 The reverse flow watches unread email through IMAP and sends matching emails as WhatsApp messages.
@@ -184,3 +192,4 @@ npm audit
 See [docs/cloud-ubuntu.md](docs/cloud-ubuntu.md) for running on an Ubuntu VM with file-backed secrets, SSH-tunneled GUI access, and systemd.
 
 See [docs/github-actions-iap-deploy.md](docs/github-actions-iap-deploy.md) for GitHub Actions deployment through Google Cloud Workload Identity Federation and IAP.
+

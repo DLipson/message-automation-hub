@@ -552,6 +552,36 @@ ${secretStoreOptions()}
                   <input name="emailMessageIdDomain" autocomplete="off">
                 </label>
                 <label>
+                  Forward statuses
+                  <select name="whatsappForwardStatusesEnabled">
+                    <option value="false">disabled</option>
+                    <option value="true">enabled</option>
+                  </select>
+                </label>
+                <label>
+                  Status whitelist
+                  <input name="whatsappForwardStatusWhitelist" autocomplete="off">
+                </label>
+                <label>
+                  Status blacklist
+                  <input name="whatsappForwardStatusBlacklist" autocomplete="off">
+                </label>
+                <label>
+                  Forward groups
+                  <select name="whatsappForwardGroupsEnabled">
+                    <option value="false">disabled</option>
+                    <option value="true">enabled</option>
+                  </select>
+                </label>
+                <label>
+                  Group whitelist
+                  <input name="whatsappForwardGroupWhitelist" autocomplete="off">
+                </label>
+                <label>
+                  Group blacklist
+                  <input name="whatsappForwardGroupBlacklist" autocomplete="off">
+                </label>
+                <label>
                   Email to WhatsApp
                   <select name="emailToWhatsappEnabled">
                     <option value="false">disabled</option>
@@ -689,6 +719,12 @@ ${secretStoreOptions()}
           emailFrom: form.emailFrom.value.trim(),
           emailTo: form.emailTo.value.trim(),
           emailMessageIdDomain: form.emailMessageIdDomain.value.trim(),
+          whatsappForwardStatusesEnabled: form.whatsappForwardStatusesEnabled.value === "true",
+          whatsappForwardStatusWhitelist: form.whatsappForwardStatusWhitelist.value.trim(),
+          whatsappForwardStatusBlacklist: form.whatsappForwardStatusBlacklist.value.trim(),
+          whatsappForwardGroupsEnabled: form.whatsappForwardGroupsEnabled.value === "true",
+          whatsappForwardGroupWhitelist: form.whatsappForwardGroupWhitelist.value.trim(),
+          whatsappForwardGroupBlacklist: form.whatsappForwardGroupBlacklist.value.trim(),
           emailToWhatsappEnabled: form.emailToWhatsappEnabled.value === "true",
           emailToWhatsappSubjectPrefix: form.emailToWhatsappSubjectPrefix.value.trim(),
           emailToWhatsappPollSeconds: form.emailToWhatsappPollSeconds.value.trim(),
@@ -709,7 +745,7 @@ ${secretStoreOptions()}
         renderBot(state.bot);
 
         for (const [key, value] of Object.entries(state.settings)) {
-          if (key === "smtpSecure" || key === "emailToWhatsappEnabled" || key === "transactionCategoryRequestEnabled" || key === "imapSecure") {
+          if (key === "smtpSecure" || key === "whatsappForwardStatusesEnabled" || key === "whatsappForwardGroupsEnabled" || key === "emailToWhatsappEnabled" || key === "transactionCategoryRequestEnabled" || key === "imapSecure") {
             form[key].value = String(value);
           } else {
             form[key].value = value ?? "";

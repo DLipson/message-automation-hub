@@ -46,6 +46,13 @@ export class EnvFileSettingsStore {
       `EMAIL_TO=${formatEnvValue(settings.emailTo)}`,
       `EMAIL_MESSAGE_ID_DOMAIN=${formatEnvValue(settings.emailMessageIdDomain)}`,
       "",
+      `WHATSAPP_FORWARD_STATUSES_ENABLED=${formatEnvValue(String(settings.whatsappForwardStatusesEnabled))}`,
+      `WHATSAPP_FORWARD_STATUS_WHITELIST=${formatEnvValue(settings.whatsappForwardStatusWhitelist)}`,
+      `WHATSAPP_FORWARD_STATUS_BLACKLIST=${formatEnvValue(settings.whatsappForwardStatusBlacklist)}`,
+      `WHATSAPP_FORWARD_GROUPS_ENABLED=${formatEnvValue(String(settings.whatsappForwardGroupsEnabled))}`,
+      `WHATSAPP_FORWARD_GROUP_WHITELIST=${formatEnvValue(settings.whatsappForwardGroupWhitelist)}`,
+      `WHATSAPP_FORWARD_GROUP_BLACKLIST=${formatEnvValue(settings.whatsappForwardGroupBlacklist)}`,
+      "",
       `EMAIL_TO_WHATSAPP_ENABLED=${formatEnvValue(String(settings.emailToWhatsappEnabled))}`,
       `EMAIL_TO_WHATSAPP_SUBJECT_PREFIX=${formatEnvValue(settings.emailToWhatsappSubjectPrefix)}`,
       `EMAIL_TO_WHATSAPP_POLL_SECONDS=${formatEnvValue(settings.emailToWhatsappPollSeconds)}`,
@@ -77,3 +84,4 @@ function isFileMissing(error: unknown): boolean {
     (error as NodeJS.ErrnoException).code === "ENOENT"
   );
 }
+

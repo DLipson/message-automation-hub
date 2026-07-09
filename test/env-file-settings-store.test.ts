@@ -28,6 +28,12 @@ describe("EnvFileSettingsStore", () => {
       smtpPort: String(appDefaults.smtpPort),
       smtpSecure: appDefaults.smtpSecure,
       emailMessageIdDomain: appDefaults.emailMessageIdDomain,
+      whatsappForwardStatusesEnabled: false,
+      whatsappForwardStatusWhitelist: "",
+      whatsappForwardStatusBlacklist: "",
+      whatsappForwardGroupsEnabled: false,
+      whatsappForwardGroupWhitelist: "",
+      whatsappForwardGroupBlacklist: "",
       transactionCategoryRequestEnabled: false,
       transactionCategoryRequestSubjectPrefix:
         appDefaults.transactionCategoryRequestSubjectPrefix,
@@ -50,6 +56,12 @@ describe("EnvFileSettingsStore", () => {
       emailFrom: "bot@example.com",
       emailTo: "me@example.com",
       emailMessageIdDomain: "mail.example.test",
+      whatsappForwardStatusesEnabled: true,
+      whatsappForwardStatusWhitelist: "12025550108@c.us",
+      whatsappForwardStatusBlacklist: "",
+      whatsappForwardGroupsEnabled: true,
+      whatsappForwardGroupWhitelist: "",
+      whatsappForwardGroupBlacklist: "111@g.us",
       emailToWhatsappEnabled: true,
       emailToWhatsappSubjectPrefix: "WA:",
       emailToWhatsappPollSeconds: "30",
@@ -73,6 +85,12 @@ describe("EnvFileSettingsStore", () => {
       emailFrom: "bot@example.com",
       emailTo: "me@example.com",
       emailMessageIdDomain: "mail.example.test",
+      whatsappForwardStatusesEnabled: true,
+      whatsappForwardStatusWhitelist: "12025550108@c.us",
+      whatsappForwardStatusBlacklist: "",
+      whatsappForwardGroupsEnabled: true,
+      whatsappForwardGroupWhitelist: "",
+      whatsappForwardGroupBlacklist: "111@g.us",
       emailToWhatsappEnabled: true,
       emailToWhatsappSubjectPrefix: "WA:",
       emailToWhatsappPollSeconds: "30",
@@ -113,9 +131,15 @@ describe("EnvFileSettingsStore", () => {
     expect(() => validateAppSettings({
       ...emptyAppSettings,
       messageHubSecretStore: "bogus",
-    } as typeof emptyAppSettings)).toThrow(
+    } as unknown as typeof emptyAppSettings)).toThrow(
       "MESSAGE_HUB_SECRET_STORE must be auto, windows-credential, or file",
     );
+
+    expect(() => validateAppSettings({
+      ...emptyAppSettings,
+      whatsappForwardStatusWhitelist: "12025550108@c.us",
+      whatsappForwardStatusBlacklist: "441234567890@c.us",
+    })).toThrow("WHATSAPP_FORWARD_STATUS_WHITELIST and WHATSAPP_FORWARD_STATUS_BLACKLIST cannot both be set");
   });
 });
 
@@ -124,3 +148,4 @@ async function tempPath(fileName: string): Promise<string> {
   tempDirs.push(dir);
   return join(dir, fileName);
 }
+
