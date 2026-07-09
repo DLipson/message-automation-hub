@@ -114,6 +114,39 @@ describe("WhatsAppWebChannel", () => {
 
     expect(received).toEqual([]);
   });
+
+  it("filters WhatsApp group messages by group settings", async () => {
+    const received: unknown[] = [];
+    const channel = new WhatsAppWebChannel({
+      phoneNumber: "12025550108",
+      forwardGroups: {
+        enabled: true,
+        blacklist: ["111@g.us"],
+      },
+    });
+    channel.onMessage(async message => {
+      received.push(message);
+    });
+
+    await channel.start();
+    await emitMessage({ from: "111@g.us", body: "skip this group" });
+    await emitMessage({ from: "222@g.us", body: "forward this group" });
+
+    expect(received).toHaveLength(1);
+  });
+
+  it("ignores WhatsApp group messages by default", async () => {
+    const received: unknown[] = [];
+    const channel = new WhatsAppWebChannel({ phoneNumber: "12025550108" });
+    channel.onMessage(async message => {
+      received.push(message);
+    });
+
+    await channel.start();
+    await emitMessage({ from: "222@g.us", body: "group" });
+
+    expect(received).toEqual([]);
+  });
 });
 
 async function emitMessage(overrides: {
@@ -127,4 +160,5 @@ async function emitMessage(overrides: {
     ...overrides,
   });
 }
+
 

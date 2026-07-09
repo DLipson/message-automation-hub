@@ -28,6 +28,7 @@ export type WhatsAppWebChannelConfig = {
   phoneNumber: string;
   sendTimeoutMs?: number;
   forwardStatuses?: WhatsAppForwardFilter;
+  forwardGroups?: WhatsAppForwardFilter;
 };
 
 type RawWhatsAppMedia = {
@@ -52,6 +53,7 @@ export class WhatsAppWebChannel implements InboundChannel, WhatsAppSender, Whats
   private readonly phoneNumber: string;
   private readonly sendTimeoutMs: number;
   private readonly forwardStatuses: WhatsAppForwardFilter;
+  private readonly forwardGroups: WhatsAppForwardFilter;
   private handler?: InboundMessageHandler;
   private pairingCodeRequests = 0;
 
@@ -59,6 +61,7 @@ export class WhatsAppWebChannel implements InboundChannel, WhatsAppSender, Whats
     this.phoneNumber = config.phoneNumber;
     this.sendTimeoutMs = config.sendTimeoutMs ?? appDefaults.whatsappSendTimeoutMs;
     this.forwardStatuses = config.forwardStatuses ?? {};
+    this.forwardGroups = config.forwardGroups ?? {};
     this.client = new Client({
       authStrategy: new LocalAuth(),
       puppeteer: {
@@ -205,14 +208,21 @@ export class WhatsAppWebChannel implements InboundChannel, WhatsAppSender, Whats
   }
 
   private shouldHandle(rawMessage: RawWhatsAppMessage): boolean {
-    if (rawMessage.from !== "status@broadcast") {
-      return true;
+    if (rawMessage.from === "status@broadcast") {
+      return Boolean(this.forwardStatuses.enabled) && isAllowed(
+        rawMessage.author ?? rawMessage.from,
+        this.forwardStatuses,
+      );
     }
 
-    return Boolean(this.forwardStatuses.enabled) && isAllowed(
-      rawMessage.author ?? rawMessage.from,
-      this.forwardStatuses,
-    );
+    if (rawMessage.from.endsWith("@g.us")) {
+      return Boolean(this.forwardGroups.enabled) && isAllowed(
+        rawMessage.from,
+        this.forwardGroups,
+      );
+    }
+
+    return true;
   }
 
   private async toInboundMessage(
@@ -317,4 +327,5 @@ function formatEventValue(value: unknown): string {
     return String(value);
   }
 }
+
 
