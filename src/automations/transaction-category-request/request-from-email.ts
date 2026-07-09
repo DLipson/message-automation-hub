@@ -7,6 +7,7 @@ import type {
   EmailAutomationBatch,
   EmailAutomationHandler,
 } from "../../use-cases/process-email-automations.js";
+import { parseSubjectCommand } from "../../use-cases/process-email-automations.js";
 import { buildTransactionCategoryRequestMessage } from "./message-builder.js";
 
 const silentLogger: AppLogger = {
@@ -39,7 +40,7 @@ export class RequestTransactionCategoryFromEmail implements EmailAutomationHandl
     email: InboundEmail,
     _batch: EmailAutomationBatch,
   ): Promise<boolean> {
-    if (!email.subject.trim().startsWith(this.options.subjectPrefix)) {
+    if (parseSubjectCommand(email.subject, this.options.subjectPrefix) === null) {
       return false;
     }
 

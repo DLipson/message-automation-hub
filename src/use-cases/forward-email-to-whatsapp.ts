@@ -8,6 +8,7 @@ import type {
   EmailAutomationBatch,
   EmailAutomationHandler,
 } from "./process-email-automations.js";
+import { parseSubjectCommand } from "./process-email-automations.js";
 
 const silentLogger: AppLogger = {
   info() {},
@@ -15,6 +16,7 @@ const silentLogger: AppLogger = {
 
 const threeMinutesMs = 3 * 60 * 1000;
 const fiveMinutesMs = 5 * 60 * 1000;
+const minimumPhoneNumberDigits = 7;
 
 export type ForwardEmailToWhatsAppOptions = {
   subjectPrefix: string;
@@ -160,22 +162,21 @@ export class ForwardEmailToWhatsApp implements EmailAutomationHandler {
   }
 
   private parseCommand(email: InboundEmail): EmailCommand | null {
-    if (!email.subject.trim().startsWith(this.options.subjectPrefix)) {
+    const rawPhoneNumber = parseSubjectCommand(
+      email.subject,
+      this.options.subjectPrefix,
+    );
+
+    if (rawPhoneNumber === null) {
       return null;
     }
 
-    const lines = email.text.split(/\r?\n/);
-    const toLineIndex = lines.findIndex(line => /^to:/i.test(line.trim()));
-
-    if (toLineIndex === -1) {
+    if (!isValidPhoneNumber(rawPhoneNumber)) {
       return null;
     }
 
-    const phoneNumber = normalizePhoneNumber(lines[toLineIndex] ?? "");
-    const text = lines
-      .slice(toLineIndex + 1)
-      .join("\n")
-      .trim();
+    const phoneNumber = normalizePhoneNumber(rawPhoneNumber);
+    const text = email.text.trim();
     const images = (email.attachments ?? []).filter(isImageAttachment);
     const image = images[0];
 
@@ -197,8 +198,15 @@ export class ForwardEmailToWhatsApp implements EmailAutomationHandler {
   }
 }
 
-function normalizePhoneNumber(toLine: string): string {
-  return toLine.replace(/^to:/i, "").replace(/\D/g, "");
+function isValidPhoneNumber(phoneNumber: string): boolean {
+  return (
+    !/\p{L}/u.test(phoneNumber) &&
+    normalizePhoneNumber(phoneNumber).length >= minimumPhoneNumberDigits
+  );
+}
+
+function normalizePhoneNumber(phoneNumber: string): string {
+  return phoneNumber.replace(/\D/g, "");
 }
 
 function randomDelayMs(): number {

@@ -41,7 +41,7 @@ class FakeWhatsAppSender implements WhatsAppSender {
 describe("RequestTransactionCategoryFromEmail", () => {
   it("sends a generated transaction category request from a matching email CSV attachment", async () => {
     const email = emailCommand({
-      subject: "TXCAT: request categories",
+      subject: "t x c a t",
       attachments: [csvAttachment([
         "Date,Payee,Outflow,Inflow",
         "2026-06-01,Grocery Store,₪42.00,₪0.00",
@@ -74,6 +74,24 @@ describe("RequestTransactionCategoryFromEmail", () => {
   it("ignores emails without the configured subject prefix", async () => {
     const email = emailCommand({
       subject: "WA: normal command",
+      attachments: [csvAttachment("Date,Payee,Outflow,Inflow\n")],
+    });
+    const inbox = new FakeEmailInbox([email]);
+    const whatsapp = new FakeWhatsAppSender();
+    const request = new RequestTransactionCategoryFromEmail(inbox, whatsapp, {
+      subjectPrefix: "TXCAT:",
+      recipientPhoneNumber: "972501234567",
+    });
+
+    await request.processUnread();
+
+    expect(whatsapp.sent).toEqual([]);
+    expect(inbox.processed).toEqual([]);
+  });
+
+  it("does not match longer words that start with the subject prefix", async () => {
+    const email = emailCommand({
+      subject: "TXCATALOG",
       attachments: [csvAttachment("Date,Payee,Outflow,Inflow\n")],
     });
     const inbox = new FakeEmailInbox([email]);
