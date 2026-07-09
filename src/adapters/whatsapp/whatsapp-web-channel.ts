@@ -1,5 +1,6 @@
 import pkg from "whatsapp-web.js";
 import { platform } from "node:os";
+import { appDefaults } from "../../config.js";
 import type { InboundMessage } from "../../domain/message.js";
 import type { MediaAttachment } from "../../domain/media.js";
 import type {
@@ -15,11 +16,11 @@ import type {
 } from "../../ports/whatsapp-sender.js";
 
 const { Client, LocalAuth, MessageMedia } = pkg;
-const manualPairingCodeRefreshIntervalMs = 2_147_483_647;
-const sendTimeoutMs = 90_000;
+const maxSignedIntTimerDelayMs = 2_147_483_647;
 
 export type WhatsAppWebChannelConfig = {
   phoneNumber: string;
+  sendTimeoutMs?: number;
 };
 
 type RawWhatsAppMedia = {
@@ -41,11 +42,13 @@ type RawWhatsAppMessage = {
 export class WhatsAppWebChannel implements InboundChannel, WhatsAppSender, WhatsAppChatSender {
   private readonly client: InstanceType<typeof Client>;
   private readonly phoneNumber: string;
+  private readonly sendTimeoutMs: number;
   private handler?: InboundMessageHandler;
   private pairingCodeRequests = 0;
 
   constructor(config: WhatsAppWebChannelConfig) {
     this.phoneNumber = config.phoneNumber;
+    this.sendTimeoutMs = config.sendTimeoutMs ?? appDefaults.whatsappSendTimeoutMs;
     this.client = new Client({
       authStrategy: new LocalAuth(),
       puppeteer: {
@@ -59,12 +62,11 @@ export class WhatsAppWebChannel implements InboundChannel, WhatsAppSender, Whats
   }
 
   async start(): Promise<void> {
-    this.client.on("code", (code: string) => {
+    this.client.on("code", () => {
       this.pairingCodeRequests += 1;
       logWhatsApp(
-        `Pairing code requested (#${this.pairingCodeRequests}). Use the latest code only.`,
+        `Pairing code requested (#${this.pairingCodeRequests}). Use the authenticated settings UI to view it.`,
       );
-      logWhatsApp(`WhatsApp pairing code: ${code}`);
     });
 
     this.client.on("authenticated", () => {
@@ -104,7 +106,11 @@ export class WhatsAppWebChannel implements InboundChannel, WhatsAppSender, Whats
         return;
       }
 
-      await this.handler(await this.toInboundMessage(rawMessage));
+      try {
+        await this.handler(await this.toInboundMessage(rawMessage));
+      } catch (error) {
+        logWhatsApp(`Message handler failed: ${formatEventValue(error)}`);
+      }
     });
 
     logWhatsApp("Initializing client.");
@@ -116,7 +122,7 @@ export class WhatsAppWebChannel implements InboundChannel, WhatsAppSender, Whats
     return await this.client.requestPairingCode(
       this.phoneNumber,
       true,
-      manualPairingCodeRefreshIntervalMs,
+      maxSignedIntTimerDelayMs,
     );
   }
 
@@ -178,7 +184,7 @@ export class WhatsAppWebChannel implements InboundChannel, WhatsAppSender, Whats
     description: string,
   ): Promise<T> {
     try {
-      return await withTimeout(send, sendTimeoutMs, description);
+      return await withTimeout(send, this.sendTimeoutMs, description);
     } catch (error) {
       throw new Error(`${description} failed: ${formatEventValue(error)}`);
     }
@@ -272,5 +278,9 @@ function formatEventValue(value: unknown): string {
     return value;
   }
 
-  return JSON.stringify(value) ?? String(value);
+  try {
+    return JSON.stringify(value) ?? String(value);
+  } catch {
+    return String(value);
+  }
 }

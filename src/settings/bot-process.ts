@@ -114,11 +114,18 @@ export class BotProcess {
 }
 
 function spawnBotProcess(options: BotProcessOptions): RunningBotProcess {
-  return spawn(options.command, options.args, {
+  return spawn(commandForPlatform(options.command), options.args, {
     cwd: options.cwd,
     env: options.env,
-    shell: true,
   });
+}
+
+function commandForPlatform(command: string): string {
+  if (process.platform === "win32" && command === "npm") {
+    return "npm.cmd";
+  }
+
+  return command;
 }
 
 function killBotProcessTree(botProcess: RunningBotProcess): void {
