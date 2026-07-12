@@ -177,7 +177,7 @@ describe("ForwardMessageToEmail", () => {
     expect(emailSender.sent[0]?.subject).toBe("WhatsApp: Alice [wa:lid123]");
   });
 
-  it("forwards up to five WhatsApp images as email attachments", async () => {
+  it("forwards up to five WhatsApp attachments", async () => {
     const attachments = [
       imageAttachment("1.jpg"),
       imageAttachment("2.jpg"),
@@ -212,7 +212,7 @@ describe("ForwardMessageToEmail", () => {
           "",
           "Photos",
           "",
-          "Note: 1 additional image attachment(s) were not forwarded because the per-message limit is 5.",
+          "Note: 1 additional attachment(s) were not forwarded because the per-message limit is 5.",
         ].join("\n"),
         attachments: attachments.slice(0, 5),
       },
@@ -239,6 +239,29 @@ describe("ForwardMessageToEmail", () => {
     expect(emailSender.sent[0]?.attachments).toEqual([attachment]);
   });
 
+  it("forwards non-image WhatsApp attachments", async () => {
+    const attachments = [
+      mediaAttachment("invoice.pdf", "application/pdf"),
+      mediaAttachment("voice-note.ogg", "audio/ogg; codecs=opus"),
+    ];
+    const emailSender = new FakeEmailSender();
+    const forwarder = new ForwardMessageToEmail(emailSender, {
+      from: "bot@example.com",
+      to: "me@example.com",
+    });
+
+    await forwarder.handle({
+      id: "message-1",
+      channel: "whatsapp",
+      from: { id: "12025550108@c.us" },
+      text: "   ",
+      receivedAt: new Date("2026-06-21T08:00:00.000Z"),
+      attachments,
+    });
+
+    expect(emailSender.sent[0]?.attachments).toEqual(attachments);
+  });
+
   it("does not send an email for an empty message", async () => {
     const emailSender = new FakeEmailSender();
     const logger = new FakeLogger();
@@ -261,9 +284,13 @@ describe("ForwardMessageToEmail", () => {
 });
 
 function imageAttachment(filename: string): MediaAttachment {
+  return mediaAttachment(filename, "image/jpeg");
+}
+
+function mediaAttachment(filename: string, contentType: string): MediaAttachment {
   return {
     filename,
-    contentType: "image/jpeg",
+    contentType,
     content: Buffer.from(filename),
   };
 }

@@ -1,5 +1,5 @@
 import type { InboundMessage } from "../domain/message.js";
-import { isImageAttachment, type MediaAttachment } from "../domain/media.js";
+import type { MediaAttachment } from "../domain/media.js";
 import type { AppLogger } from "../ports/app-logger.js";
 import type { EmailSender } from "../ports/email-sender.js";
 import {
@@ -13,7 +13,7 @@ const silentLogger: AppLogger = {
   info() {},
 };
 
-const maxImageAttachments = 5;
+const maxAttachments = 5;
 
 export type ForwardMessageToEmailOptions = {
   from: string;
@@ -29,9 +29,9 @@ export class ForwardMessageToEmail {
   ) {}
 
   async handle(message: InboundMessage): Promise<void> {
-    const imageAttachments = this.imageAttachmentsFor(message);
+    const attachments = this.attachmentsFor(message);
 
-    if (!message.text.trim() && imageAttachments.length === 0) {
+    if (!message.text.trim() && attachments.length === 0) {
       return;
     }
 
@@ -54,7 +54,7 @@ export class ForwardMessageToEmail {
         inReplyTo: thread.rootMessageId,
         references: [thread.rootMessageId],
       } : {}),
-      ...(imageAttachments.length > 0 ? { attachments: imageAttachments.slice(0, maxImageAttachments) } : {}),
+      ...(attachments.length > 0 ? { attachments: attachments.slice(0, maxAttachments) } : {}),
     });
 
     this.logger.info(
@@ -74,8 +74,8 @@ export class ForwardMessageToEmail {
     const sender = message.from.displayName
       ? `${message.from.displayName} (${message.from.id})`
       : message.from.id;
-    const imageCount = this.imageAttachmentsFor(message).length;
-    const omittedImageCount = Math.max(0, imageCount - maxImageAttachments);
+    const attachmentCount = this.attachmentsFor(message).length;
+    const omittedAttachmentCount = Math.max(0, attachmentCount - maxAttachments);
     const lines = thread
       ? [
         `${message.from.displayName ?? message.from.id}:`,
@@ -94,17 +94,17 @@ export class ForwardMessageToEmail {
         message.text,
       ];
 
-    if (omittedImageCount > 0) {
+    if (omittedAttachmentCount > 0) {
       lines.push(
         "",
-        `Note: ${omittedImageCount} additional image attachment(s) were not forwarded because the per-message limit is ${maxImageAttachments}.`,
+        `Note: ${omittedAttachmentCount} additional attachment(s) were not forwarded because the per-message limit is ${maxAttachments}.`,
       );
     }
 
     return lines.join("\n");
   }
 
-  private imageAttachmentsFor(message: InboundMessage): MediaAttachment[] {
-    return (message.attachments ?? []).filter(isImageAttachment);
+  private attachmentsFor(message: InboundMessage): MediaAttachment[] {
+    return message.attachments ?? [];
   }
 }

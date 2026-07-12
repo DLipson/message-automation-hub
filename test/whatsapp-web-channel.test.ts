@@ -70,6 +70,34 @@ describe("WhatsAppWebChannel", () => {
     expect(log.mock.calls.flat().join("\n")).toContain("Message handler failed");
   });
 
+  it("downloads non-image WhatsApp media attachments", async () => {
+    const received: unknown[] = [];
+    const channel = new WhatsAppWebChannel({ phoneNumber: "12025550108" });
+    channel.onMessage(async message => {
+      received.push(message);
+    });
+
+    await channel.start();
+    await emitMessage({
+      from: "12025550108@c.us",
+      body: "invoice",
+      hasMedia: true,
+      downloadMedia: async () => ({
+        mimetype: "application/pdf",
+        data: Buffer.from("pdf").toString("base64"),
+        filename: "invoice.pdf",
+      }),
+    });
+
+    expect(received).toEqual([expect.objectContaining({
+      attachments: [{
+        content: Buffer.from("pdf"),
+        contentType: "application/pdf",
+        filename: "invoice.pdf",
+      }],
+    })]);
+  });
+
   it("filters WhatsApp status messages by status settings", async () => {
     const received: unknown[] = [];
     const channel = new WhatsAppWebChannel({
@@ -153,6 +181,12 @@ async function emitMessage(overrides: {
   from: string;
   author?: string;
   body: string;
+  hasMedia?: boolean;
+  downloadMedia?: () => Promise<{
+    mimetype: string;
+    data: string;
+    filename?: string | null;
+  } | undefined>;
 }): Promise<void> {
   await whatsappMock.clients[0]?.handlers.get("message")?.({
     id: { _serialized: "message-1" },
@@ -160,5 +194,3 @@ async function emitMessage(overrides: {
     ...overrides,
   });
 }
-
-

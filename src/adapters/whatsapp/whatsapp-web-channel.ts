@@ -252,7 +252,7 @@ export class WhatsAppWebChannel implements InboundChannel, WhatsAppSender, Whats
 
     const media = await rawMessage.downloadMedia();
 
-    if (!media?.mimetype.toLowerCase().startsWith("image/")) {
+    if (!media) {
       return [];
     }
 
@@ -327,5 +327,3 @@ function formatEventValue(value: unknown): string {
     return String(value);
   }
 }
-
-

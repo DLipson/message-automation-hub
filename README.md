@@ -4,7 +4,7 @@ A Node.js/TypeScript message automation service that connects WhatsApp Web and e
 
 Current features:
 
-- forward incoming WhatsApp text and image messages to email
+- forward incoming WhatsApp text and media attachments to email
 - send WhatsApp messages from unread command emails
 - send one image attachment from email to WhatsApp
 - request transaction categories from a CSV email attachment
@@ -85,7 +85,7 @@ It can:
 
 Incoming WhatsApp text is forwarded to the configured email recipient.
 
-Incoming WhatsApp image media is forwarded as email attachments. The app attaches up to five images from one WhatsApp message. If more images are present, the email body includes a note that additional images were not forwarded. Video is not forwarded.
+Incoming WhatsApp media is forwarded as email attachments. The app attaches up to five attachments from one WhatsApp message. If more attachments are present, the email body includes a note that additional attachments were not forwarded.
 
 Rules:
 
