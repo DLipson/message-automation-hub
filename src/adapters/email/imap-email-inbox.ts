@@ -3,7 +3,7 @@ import { simpleParser } from "mailparser";
 import type { Attachment } from "mailparser";
 import type { InboundEmail } from "../../domain/email.js";
 import type { MediaAttachment } from "../../domain/media.js";
-import type { EmailInbox } from "../../ports/email-inbox.js";
+import type { EmailInbox, EmailStatusMarker } from "../../ports/email-inbox.js";
 
 export type ImapEmailInboxConfig = {
   host: string;
@@ -17,7 +17,7 @@ type FetchedEmail = InboundEmail & {
   uid: number;
 };
 
-export class ImapEmailInbox implements EmailInbox {
+export class ImapEmailInbox implements EmailInbox, EmailStatusMarker {
   private readonly config: ImapEmailInboxConfig;
 
   constructor(config: ImapEmailInboxConfig) {
@@ -71,11 +71,54 @@ export class ImapEmailInbox implements EmailInbox {
     }
   }
 
+  async ensureLabels(labels: string[]): Promise<void> {
+    const client = this.createClient();
+
+    await client.connect();
+
+    try {
+      for (const label of labelsWithParents(labels)) {
+        try {
+          await client.mailboxCreate(label);
+        } catch (error) {
+          if (!isAlreadyExistsError(error)) {
+            throw error;
+          }
+        }
+      }
+    } finally {
+      await client.logout();
+    }
+  }
+
   async markProcessed(email: InboundEmail): Promise<void> {
+    await this.updateEmail(email, async (client, uid) => {
+      await client.messageFlagsAdd(uid, ["\\Seen"], { uid: true });
+    });
+  }
+
+  async markSent(email: InboundEmail): Promise<void> {
+    await this.updateEmail(email, async (client, uid) => {
+      await client.messageFlagsRemove(uid, ["WA/Failed"], { uid: true, useLabels: true });
+      await client.messageFlagsAdd(uid, ["WA/Sent"], { uid: true, useLabels: true });
+    });
+  }
+
+  async markFailed(email: InboundEmail): Promise<void> {
+    await this.updateEmail(email, async (client, uid) => {
+      await client.messageFlagsRemove(uid, ["WA/Sent"], { uid: true, useLabels: true });
+      await client.messageFlagsAdd(uid, ["WA/Failed"], { uid: true, useLabels: true });
+    });
+  }
+
+  private async updateEmail(
+    email: InboundEmail,
+    update: (client: ImapFlow, uid: number) => Promise<void>,
+  ): Promise<void> {
     const uid = Number(email.id);
 
     if (!Number.isInteger(uid)) {
-      throw new Error(`Cannot mark email without numeric IMAP uid: ${email.id}`);
+      throw new Error(`Cannot update email without numeric IMAP uid: ${email.id}`);
     }
 
     const client = this.createClient();
@@ -84,7 +127,7 @@ export class ImapEmailInbox implements EmailInbox {
 
     try {
       await client.mailboxOpen("INBOX");
-      await client.messageFlagsAdd(uid, ["\\Seen"], { uid: true });
+      await update(client, uid);
     } finally {
       await client.logout();
     }
@@ -126,6 +169,16 @@ function referencesFor(references: string[] | string | undefined): string[] {
   return Array.isArray(references) ? references : [references];
 }
 
+function labelsWithParents(labels: string[]): string[] {
+  return [...new Set(labels.flatMap(label => {
+    const parts = label.split("/");
+    return parts.map((_, index) => parts.slice(0, index + 1).join("/"));
+  }))];
+}
+
+function isAlreadyExistsError(error: unknown): boolean {
+  return error instanceof Error && /exist/i.test(error.message);
+}
 function formatError(error: unknown): string {
   if (error instanceof Error) {
     return error.message;

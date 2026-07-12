@@ -1,7 +1,7 @@
 import type { InboundEmail } from "../domain/email.js";
 import { isImageAttachment, type MediaAttachment } from "../domain/media.js";
 import type { AppLogger } from "../ports/app-logger.js";
-import type { EmailInbox } from "../ports/email-inbox.js";
+import type { EmailInbox, EmailStatusMarker } from "../ports/email-inbox.js";
 import type { EmailSender } from "../ports/email-sender.js";
 import type { WhatsAppSender } from "../ports/whatsapp-sender.js";
 import type {
@@ -26,6 +26,11 @@ export type ForwardEmailToWhatsAppOptions = {
     sender: EmailSender;
     from: string;
   };
+  failureNotification?: {
+    sender: EmailSender;
+    from: string;
+    to: string;
+  };
 };
 
 type EmailCommand = {
@@ -37,7 +42,7 @@ type EmailCommand = {
 
 export class ForwardEmailToWhatsApp implements EmailAutomationHandler {
   constructor(
-    private readonly inbox: EmailInbox,
+    private readonly inbox: EmailInbox & EmailStatusMarker,
     private readonly whatsapp: WhatsAppSender,
     private readonly options: ForwardEmailToWhatsAppOptions,
     private readonly logger: AppLogger = silentLogger,
@@ -62,22 +67,29 @@ export class ForwardEmailToWhatsApp implements EmailAutomationHandler {
       return false;
     }
 
+    this.logger.info(
+      `Detected command email ${email.id} with subject "${email.subject}".`,
+    );
+    await this.inbox.markProcessed(email);
+
     if (command.image && batch.sentWhatsAppImage) {
       await this.waitBeforeNextImage();
     }
 
-    this.logger.info(
-      `Detected command email ${email.id} with subject "${email.subject}".`,
-    );
+    try {
+      if (command.image) {
+        await this.forwardImageEmail(email, { ...command, image: command.image });
+        batch.sentWhatsAppImage = true;
+      } else {
+        await this.forwardTextEmail(email, command);
+      }
 
-    if (command.image) {
-      await this.forwardImageEmail(email, { ...command, image: command.image });
-      batch.sentWhatsAppImage = true;
-    } else {
-      await this.forwardTextEmail(email, command);
+      await this.inbox.markSent(email);
+      return true;
+    } catch (error) {
+      await this.markFailedAndNotify(email, command, error);
+      throw error;
     }
-
-    return true;
   }
 
   private async forwardTextEmail(
@@ -92,7 +104,6 @@ export class ForwardEmailToWhatsApp implements EmailAutomationHandler {
       phoneNumber: command.phoneNumber,
       text: command.text,
     });
-    await this.inbox.markProcessed(email);
 
     this.logger.info(
       `Forwarded email ${email.id} to WhatsApp number ${command.phoneNumber}.`,
@@ -118,12 +129,61 @@ export class ForwardEmailToWhatsApp implements EmailAutomationHandler {
       text: command.text,
       image: command.image,
     });
-    await this.inbox.markProcessed(email);
     await this.notifyExtraImagesIgnored(email, command);
 
     this.logger.info(
       `Forwarded image email ${email.id} to WhatsApp number ${command.phoneNumber}.`,
     );
+  }
+
+  private async markFailedAndNotify(
+    email: InboundEmail,
+    command: EmailCommand,
+    error: unknown,
+  ): Promise<void> {
+    await this.inbox.markFailed(email);
+
+    try {
+      await this.notifySendFailure(email, command, error);
+    } catch (notificationError) {
+      this.logger.info(
+        `Could not send WhatsApp failure notice for email ${email.id}: ${
+          notificationError instanceof Error ? notificationError.message : "Unknown error"
+        }`,
+      );
+    }
+  }
+
+  private async notifySendFailure(
+    email: InboundEmail,
+    command: EmailCommand,
+    error: unknown,
+  ): Promise<void> {
+    const notification = this.options.failureNotification;
+
+    if (!notification) {
+      return;
+    }
+
+    await notification.sender.send({
+      from: notification.from,
+      to: notification.to,
+      subject: `WA send failed: ${command.phoneNumber}`,
+      text: [
+        "Message Automation Hub could not send a WhatsApp command email.",
+        "",
+        `Target: ${command.phoneNumber}`,
+        `Email subject: ${email.subject}`,
+        `Email id: ${email.id}`,
+        `Time: ${email.receivedAt.toISOString()}`,
+        "",
+        "Message:",
+        command.text,
+        "",
+        "Error:",
+        formatError(error),
+      ].join("\n"),
+    });
   }
 
   private async notifyExtraImagesIgnored(
@@ -215,4 +275,12 @@ function randomDelayMs(): number {
 
 function wait(milliseconds: number): Promise<void> {
   return new Promise(resolve => setTimeout(resolve, milliseconds));
+}
+
+function formatError(error: unknown): string {
+  if (error instanceof Error) {
+    return error.stack ?? error.toString();
+  }
+
+  return String(error);
 }

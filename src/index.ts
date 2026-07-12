@@ -48,6 +48,7 @@ if (config.emailToWhatsapp.enabled || config.transactionCategoryRequest.enabled)
   const inbox = new ImapEmailInbox(config.imap);
 
   if (config.emailToWhatsapp.enabled) {
+    await inbox.ensureLabels(["WA/Sent", "WA/Failed"]);
     emailAutomationHandlers.push(
       new ReplyEmailToWhatsApp(inbox, whatsapp, threadStore, logger, {
         ignoreFrom: config.email.from,
@@ -58,6 +59,11 @@ if (config.emailToWhatsapp.enabled || config.transactionCategoryRequest.enabled)
       extraImageNotification: {
         sender: emailSender,
         from: config.email.from,
+      },
+      failureNotification: {
+        sender: emailSender,
+        from: config.email.from,
+        to: config.email.to,
       },
     }, logger));
   }

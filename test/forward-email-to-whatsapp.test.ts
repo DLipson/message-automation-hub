@@ -13,6 +13,8 @@ import { ForwardEmailToWhatsApp } from "../src/use-cases/forward-email-to-whatsa
 
 class FakeEmailInbox implements EmailInbox {
   readonly processed: InboundEmail[] = [];
+  readonly sent: InboundEmail[] = [];
+  readonly failed: InboundEmail[] = [];
 
   constructor(private readonly emails: InboundEmail[]) {}
 
@@ -22,6 +24,14 @@ class FakeEmailInbox implements EmailInbox {
 
   async markProcessed(email: InboundEmail): Promise<void> {
     this.processed.push(email);
+  }
+
+  async markSent(email: InboundEmail): Promise<void> {
+    this.sent.push(email);
+  }
+
+  async markFailed(email: InboundEmail): Promise<void> {
+    this.failed.push(email);
   }
 }
 
@@ -77,6 +87,8 @@ describe("ForwardEmailToWhatsApp", () => {
     ]);
     expect(whatsapp.sentImages).toEqual([]);
     expect(inbox.processed).toEqual([email]);
+    expect(inbox.sent).toEqual([email]);
+    expect(inbox.failed).toEqual([]);
     expect(logger.messages).toEqual([
       'Detected command email email-1 with subject "wa+1 (202) 555-0108".',
       "Forwarding email email-1 to WhatsApp number 12025550108.",
@@ -265,12 +277,13 @@ describe("ForwardEmailToWhatsApp", () => {
     expect(logger.messages).toEqual([]);
   });
 
-  it("does not mark matching email as processed when WhatsApp sending fails", async () => {
+  it("marks failed command emails and sends a separate failure email", async () => {
     const email = emailCommand({
       subject: "WA: 12025550108",
       text: "Can you call me?",
     });
     const inbox = new FakeEmailInbox([email]);
+    const notificationSender = new FakeEmailSender();
     const whatsapp: WhatsAppSender = {
       async sendMessage() {
         throw new Error("send failed");
@@ -279,11 +292,38 @@ describe("ForwardEmailToWhatsApp", () => {
     };
     const forwarder = new ForwardEmailToWhatsApp(inbox, whatsapp, {
       subjectPrefix: "WA:",
+      failureNotification: {
+        sender: notificationSender,
+        from: "bot@example.com",
+        to: "owner@example.com",
+      },
     });
 
     await expect(forwarder.processUnread()).rejects.toThrow("send failed");
 
-    expect(inbox.processed).toEqual([]);
+    expect(inbox.processed).toEqual([email]);
+    expect(inbox.failed).toEqual([email]);
+    expect(inbox.sent).toEqual([]);
+    expect(notificationSender.sent).toHaveLength(1);
+    expect(notificationSender.sent[0]).toMatchObject({
+      from: "bot@example.com",
+      to: "owner@example.com",
+      subject: "WA send failed: 12025550108",
+      text: expect.stringContaining([
+        "Message Automation Hub could not send a WhatsApp command email.",
+        "",
+        "Target: 12025550108",
+        "Email subject: WA: 12025550108",
+        "Email id: email-1",
+        "Time: 2026-06-21T08:00:00.000Z",
+        "",
+        "Message:",
+        "Can you call me?",
+        "",
+        "Error:",
+        "Error: send failed",
+      ].join("\n")),
+    });
   });
 });
 
