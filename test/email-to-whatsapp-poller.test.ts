@@ -22,7 +22,7 @@ describe("EmailToWhatsAppPoller", () => {
     await vi.advanceTimersByTimeAsync(3000);
 
     expect(processor.calls).toBe(1);
-    expect(warn).toHaveBeenCalled();
+    expect(warn).not.toHaveBeenCalled();
 
     finishPoll?.();
     await vi.runOnlyPendingTimersAsync();

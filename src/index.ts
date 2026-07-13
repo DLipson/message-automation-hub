@@ -26,7 +26,7 @@ const config = loadConfig(process.env, { smtpPassword });
 const logger = console;
 const pluginContext = await registerPlugins([
   createLoggerPlugin(logger),
-  createEmailPlugin(config),
+  createEmailPlugin(config, process.env),
   createThreadStorePlugin(config, process.env),
   createWhatsAppWebPlugin(config),
   createWhatsAppEmailBridgePlugin(config),

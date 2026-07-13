@@ -1,7 +1,12 @@
 import type { InboundEmail } from "../domain/email.js";
 
+export type EmailInboxBatch = InboundEmail[] | {
+  emails: InboundEmail[];
+  complete(): Promise<void>;
+};
+
 export interface EmailInbox {
-  fetchUnread(): Promise<InboundEmail[]>;
+  fetchUnread(): Promise<EmailInboxBatch>;
   markProcessed(email: InboundEmail): Promise<void>;
 }
 

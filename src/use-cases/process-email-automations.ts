@@ -68,7 +68,8 @@ export class ProcessEmailAutomations {
   ) {}
 
   async processUnread(): Promise<void> {
-    const emails = await this.inbox.fetchUnread();
+    const fetched = await this.inbox.fetchUnread();
+    const emails = Array.isArray(fetched) ? fetched : fetched.emails;
     const batch: EmailAutomationBatch = { sentWhatsAppImage: false };
 
     for (const email of emails) {
@@ -77,6 +78,10 @@ export class ProcessEmailAutomations {
           break;
         }
       }
+    }
+
+    if (!Array.isArray(fetched)) {
+      await fetched.complete();
     }
   }
 }

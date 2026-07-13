@@ -1,3 +1,4 @@
+import { defaultEnvFilePath } from "../config.js";
 import type { AppConfig } from "../config.js";
 import type { HubPlugin } from "../core/plugin-runtime.js";
 import { ImapEmailInbox } from "../adapters/email/imap-email-inbox.js";
@@ -10,6 +11,7 @@ import type { AppLogger } from "../ports/app-logger.js";
 import type { EmailAutomationHandler } from "../use-cases/process-email-automations.js";
 import { WhatsAppWebChannel } from "../adapters/whatsapp/whatsapp-web-channel.js";
 import { capabilities } from "./capabilities.js";
+import { dirname, join } from "node:path";
 
 export function createLoggerPlugin(logger: AppLogger): HubPlugin {
   return {
@@ -20,12 +22,12 @@ export function createLoggerPlugin(logger: AppLogger): HubPlugin {
   };
 }
 
-export function createEmailPlugin(config: AppConfig): HubPlugin {
+export function createEmailPlugin(config: AppConfig, env: NodeJS.ProcessEnv = process.env): HubPlugin {
   return {
     id: "email",
     register(ctx) {
       ctx.provide(capabilities.emailSender, new SmtpEmailSender(config.smtp));
-      ctx.provide(capabilities.emailInbox, new ImapEmailInbox(config.imap));
+      ctx.provide(capabilities.emailInbox, new ImapEmailInbox({ ...config.imap, checkpointPath: env.IMAP_CHECKPOINT_FILE ?? join(dirname(env.MESSAGE_HUB_ENV_FILE ?? defaultEnvFilePath()), "imap-checkpoint.json") }));
       ctx.provide<EmailAutomationHandler[]>(
         capabilities.emailAutomationHandlers,
         [],
