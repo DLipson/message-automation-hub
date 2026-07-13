@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { AppConfig } from "../src/config.js";
 import type { InboundEmail } from "../src/domain/email.js";
-import type { InboundMessage, MessageSender } from "../src/domain/message.js";
+import type { ContactRef, InboundMessage } from "../src/domain/message.js";
 import type { EmailInbox, EmailStatusMarker } from "../src/ports/email-inbox.js";
 import type { EmailMessage, EmailSender } from "../src/ports/email-sender.js";
 import type { InboundChannel, InboundMessageHandler } from "../src/ports/inbound-channel.js";
@@ -173,7 +173,12 @@ const fakeInbox: EmailInbox = {
   async markProcessed() {},
 };
 
-function config(overrides: Partial<AppConfig> = {}): AppConfig {
+type ConfigOverrides = Omit<Partial<AppConfig>, "emailToWhatsapp" | "transactionCategoryRequest"> & {
+  emailToWhatsapp?: Partial<AppConfig["emailToWhatsapp"]>;
+  transactionCategoryRequest?: Partial<AppConfig["transactionCategoryRequest"]>;
+};
+
+function config(overrides: ConfigOverrides = {}): AppConfig {
   return {
     whatsapp: {
       phoneNumber: "972501234567",
@@ -211,18 +216,18 @@ function config(overrides: Partial<AppConfig> = {}): AppConfig {
       recipientPhoneNumber: "",
       ...overrides.transactionCategoryRequest,
     },
-    ...overrides,
   };
 }
 
 function whatsappMessage(): InboundMessage {
-  const sender: MessageSender = {
+  const sender: ContactRef = {
     id: "chat-1",
     displayName: "Alice",
   };
 
   return {
     id: "message-1",
+    channel: "whatsapp",
     from: sender,
     text: "Hello",
     receivedAt: new Date("2026-07-12T10:00:00.000Z"),
