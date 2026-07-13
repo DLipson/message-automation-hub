@@ -10,6 +10,7 @@ import type {
 import {
   RequestTransactionCategoryFromEmail,
 } from "../src/automations/transaction-category-request/request-from-email.js";
+import { ProcessEmailAutomations } from "../src/use-cases/process-email-automations.js";
 
 class FakeEmailInbox implements EmailInbox {
   readonly processed: InboundEmail[] = [];
@@ -55,7 +56,7 @@ describe("RequestTransactionCategoryFromEmail", () => {
       recipientPhoneNumber: "972501234567",
     });
 
-    await request.processUnread();
+    await new ProcessEmailAutomations(inbox, [request]).processUnread();
 
     expect(whatsapp.sent).toEqual([
       {
@@ -83,7 +84,7 @@ describe("RequestTransactionCategoryFromEmail", () => {
       recipientPhoneNumber: "972501234567",
     });
 
-    await request.processUnread();
+    await new ProcessEmailAutomations(inbox, [request]).processUnread();
 
     expect(whatsapp.sent).toEqual([]);
     expect(inbox.processed).toEqual([]);
@@ -101,7 +102,7 @@ describe("RequestTransactionCategoryFromEmail", () => {
       recipientPhoneNumber: "972501234567",
     });
 
-    await request.processUnread();
+    await new ProcessEmailAutomations(inbox, [request]).processUnread();
 
     expect(whatsapp.sent).toEqual([]);
     expect(inbox.processed).toEqual([]);
@@ -125,7 +126,7 @@ describe("RequestTransactionCategoryFromEmail", () => {
       recipientPhoneNumber: "972501234567",
     });
 
-    await expect(request.processUnread()).rejects.toThrow("send failed");
+    await expect(new ProcessEmailAutomations(inbox, [request]).processUnread()).rejects.toThrow("send failed");
 
     expect(inbox.processed).toEqual([]);
   });
@@ -146,7 +147,7 @@ describe("RequestTransactionCategoryFromEmail", () => {
       recipientPhoneNumber: "972501234567",
     });
 
-    await request.processUnread();
+    await new ProcessEmailAutomations(inbox, [request]).processUnread();
 
     expect(whatsapp.sent).toEqual([]);
     expect(inbox.processed).toEqual([]);

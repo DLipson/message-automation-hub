@@ -48,14 +48,6 @@ export class ForwardEmailToWhatsApp implements EmailAutomationHandler {
     private readonly logger: AppLogger = silentLogger,
   ) {}
 
-  async processUnread(): Promise<void> {
-    const emails = await this.inbox.fetchUnread();
-    const batch: EmailAutomationBatch = { sentWhatsAppImage: false };
-
-    for (const email of emails) {
-      await this.handle(email, batch);
-    }
-  }
 
   async handle(
     email: InboundEmail,

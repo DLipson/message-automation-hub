@@ -9,6 +9,7 @@ import type {
   WhatsAppDirectMessage,
   WhatsAppSender,
 } from "../src/ports/whatsapp-sender.js";
+import { ProcessEmailAutomations } from "../src/use-cases/process-email-automations.js";
 import { ForwardEmailToWhatsApp } from "../src/use-cases/forward-email-to-whatsapp.js";
 
 class FakeEmailInbox implements EmailInbox {
@@ -77,7 +78,7 @@ describe("ForwardEmailToWhatsApp", () => {
       subjectPrefix: "WA:",
     }, logger);
 
-    await forwarder.processUnread();
+    await new ProcessEmailAutomations(inbox, [forwarder]).processUnread();
 
     expect(whatsapp.sent).toEqual([
       {
@@ -109,7 +110,7 @@ describe("ForwardEmailToWhatsApp", () => {
       subjectPrefix: "WA:",
     });
 
-    await forwarder.processUnread();
+    await new ProcessEmailAutomations(inbox, [forwarder]).processUnread();
 
     expect(whatsapp.sent).toEqual([]);
     expect(whatsapp.sentImages).toEqual([
@@ -143,7 +144,7 @@ describe("ForwardEmailToWhatsApp", () => {
       },
     }, logger);
 
-    await forwarder.processUnread();
+    await new ProcessEmailAutomations(inbox, [forwarder]).processUnread();
 
     expect(whatsapp.sentImages).toEqual([
       {
@@ -195,7 +196,7 @@ describe("ForwardEmailToWhatsApp", () => {
       },
     }, logger);
 
-    await forwarder.processUnread();
+    await new ProcessEmailAutomations(inbox, [forwarder]).processUnread();
 
     expect(whatsapp.sentImages).toHaveLength(1);
     expect(inbox.processed).toEqual([email]);
@@ -228,7 +229,7 @@ describe("ForwardEmailToWhatsApp", () => {
       },
     });
 
-    await forwarder.processUnread();
+    await new ProcessEmailAutomations(inbox, [forwarder]).processUnread();
 
     expect(waits).toEqual([240_000]);
     expect(whatsapp.sentImages).toHaveLength(2);
@@ -247,7 +248,7 @@ describe("ForwardEmailToWhatsApp", () => {
       subjectPrefix: "WA:",
     }, logger);
 
-    await forwarder.processUnread();
+    await new ProcessEmailAutomations(inbox, [forwarder]).processUnread();
 
     expect(whatsapp.sent).toEqual([]);
     expect(whatsapp.sentImages).toEqual([]);
@@ -269,7 +270,7 @@ describe("ForwardEmailToWhatsApp", () => {
       subjectPrefix: "WA:",
     }, logger);
 
-    await forwarder.processUnread();
+    await new ProcessEmailAutomations(inbox, [forwarder]).processUnread();
 
     expect(whatsapp.sent).toEqual([]);
     expect(whatsapp.sentImages).toEqual([]);
@@ -299,7 +300,7 @@ describe("ForwardEmailToWhatsApp", () => {
       },
     });
 
-    await expect(forwarder.processUnread()).rejects.toThrow("send failed");
+    await expect(new ProcessEmailAutomations(inbox, [forwarder]).processUnread()).rejects.toThrow("send failed");
 
     expect(inbox.processed).toEqual([email]);
     expect(inbox.failed).toEqual([email]);
