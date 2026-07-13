@@ -179,89 +179,13 @@ export function envToAppSettings(
 }
 
 export function validateAppSettings(settings: AppSettings): void {
-  assertString(settings.whatsappPhoneNumber, "WHATSAPP_PHONE_NUMBER");
-  assertString(settings.messageHubSecretStore, "MESSAGE_HUB_SECRET_STORE");
-  assertString(settings.messageHubSecretFile, "MESSAGE_HUB_SECRET_FILE");
-  assertString(settings.smtpHost, "SMTP_HOST");
-  assertPositiveIntegerString(settings.smtpPort, "SMTP_PORT");
-  assertBoolean(settings.smtpSecure, "SMTP_SECURE");
-  assertString(settings.smtpUser, "SMTP_USER");
-  assertString(settings.emailFrom, "EMAIL_FROM");
-  assertString(settings.emailTo, "EMAIL_TO");
-  assertString(settings.emailMessageIdDomain, "EMAIL_MESSAGE_ID_DOMAIN");
-  assertBoolean(
-    settings.whatsappForwardStatusesEnabled,
-    "WHATSAPP_FORWARD_STATUSES_ENABLED",
-  );
-  assertString(
-    settings.whatsappForwardStatusWhitelist,
-    "WHATSAPP_FORWARD_STATUS_WHITELIST",
-  );
-  assertString(
-    settings.whatsappForwardStatusBlacklist,
-    "WHATSAPP_FORWARD_STATUS_BLACKLIST",
-  );
-  assertOnlyOneList(
-    settings.whatsappForwardStatusWhitelist,
-    "WHATSAPP_FORWARD_STATUS_WHITELIST",
-    settings.whatsappForwardStatusBlacklist,
-    "WHATSAPP_FORWARD_STATUS_BLACKLIST",
-  );
-  assertBoolean(
-    settings.whatsappForwardGroupsEnabled,
-    "WHATSAPP_FORWARD_GROUPS_ENABLED",
-  );
-  assertString(
-    settings.whatsappForwardGroupWhitelist,
-    "WHATSAPP_FORWARD_GROUP_WHITELIST",
-  );
-  assertString(
-    settings.whatsappForwardGroupBlacklist,
-    "WHATSAPP_FORWARD_GROUP_BLACKLIST",
-  );
-  assertOnlyOneList(
-    settings.whatsappForwardGroupWhitelist,
-    "WHATSAPP_FORWARD_GROUP_WHITELIST",
-    settings.whatsappForwardGroupBlacklist,
-    "WHATSAPP_FORWARD_GROUP_BLACKLIST",
-  );
-  assertBoolean(settings.emailToWhatsappEnabled, "EMAIL_TO_WHATSAPP_ENABLED");
-  assertString(
-    settings.emailToWhatsappSubjectPrefix,
-    "EMAIL_TO_WHATSAPP_SUBJECT_PREFIX",
-  );
-  assertPositiveIntegerString(
-    settings.emailToWhatsappPollSeconds,
-    "EMAIL_TO_WHATSAPP_POLL_SECONDS",
-  );
-  assertBoolean(
-    settings.transactionCategoryRequestEnabled,
-    "TRANSACTION_CATEGORY_REQUEST_ENABLED",
-  );
-  assertString(
-    settings.transactionCategoryRequestSubjectPrefix,
-    "TRANSACTION_CATEGORY_REQUEST_SUBJECT_PREFIX",
-  );
-  assertString(
-    settings.transactionCategoryRequestRecipientPhoneNumber,
-    "TRANSACTION_CATEGORY_REQUEST_RECIPIENT_PHONE_NUMBER",
-  );
-  assertString(settings.imapHost, "IMAP_HOST");
-  assertPositiveIntegerString(settings.imapPort, "IMAP_PORT");
-  assertBoolean(settings.imapSecure, "IMAP_SECURE");
-  assertString(settings.imapUser, "IMAP_USER");
-
   if (!isSecretStoreMode(settings.messageHubSecretStore)) {
     throw new Error(
       "MESSAGE_HUB_SECRET_STORE must be auto, windows-credential, or file",
     );
   }
-}
 
-export function settingsToRuntimeEnv(
-  settings: AppSettings,
-): NodeJS.ProcessEnv {
-  return appSettingsToEnv(settings);
+  loadConfig(appSettingsToEnv(settings), { smtpPassword: "validation-only" });
 }
 
 export function settingsToEmailConfig(
@@ -303,37 +227,5 @@ function readBoolean(
   }
 
   throw new Error(`${key} must be true or false`);
-}
-
-function assertOnlyOneList(
-  firstValue: string,
-  firstKey: string,
-  secondValue: string,
-  secondKey: string,
-): void {
-  if (firstValue.trim() && secondValue.trim()) {
-    throw new Error(`${firstKey} and ${secondKey} cannot both be set`);
-  }
-}
-
-function assertString(value: unknown, key: string): asserts value is string {
-  if (typeof value !== "string") {
-    throw new Error(`${key} must be a string`);
-  }
-}
-
-function assertBoolean(value: unknown, key: string): asserts value is boolean {
-  if (typeof value !== "boolean") {
-    throw new Error(`${key} must be true or false`);
-  }
-}
-
-function assertPositiveIntegerString(value: unknown, key: string): void {
-  assertString(value, key);
-
-  const numberValue = Number(value);
-  if (!Number.isInteger(numberValue) || numberValue <= 0) {
-    throw new Error(`${key} must be a positive integer`);
-  }
 }
 

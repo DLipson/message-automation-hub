@@ -113,30 +113,38 @@ describe("EnvFileSettingsStore", () => {
   });
 
   it("validates settings before they are persisted by the server", () => {
-    expect(() => validateAppSettings({
+    const settings = {
       ...emptyAppSettings,
+      whatsappPhoneNumber: "12025550108",
+      smtpUser: "bot@example.com",
+      emailFrom: "bot@example.com",
+      emailTo: "me@example.com",
+    };
+
+    expect(() => validateAppSettings({
+      ...settings,
       smtpPort: "abc",
     })).toThrow("SMTP_PORT must be a positive integer");
 
     expect(() => validateAppSettings({
-      ...emptyAppSettings,
+      ...settings,
       imapPort: "abc",
     })).toThrow("IMAP_PORT must be a positive integer");
 
     expect(() => validateAppSettings({
-      ...emptyAppSettings,
+      ...settings,
       emailToWhatsappPollSeconds: "abc",
     })).toThrow("EMAIL_TO_WHATSAPP_POLL_SECONDS must be a positive integer");
 
     expect(() => validateAppSettings({
-      ...emptyAppSettings,
+      ...settings,
       messageHubSecretStore: "bogus",
     } as unknown as typeof emptyAppSettings)).toThrow(
       "MESSAGE_HUB_SECRET_STORE must be auto, windows-credential, or file",
     );
 
     expect(() => validateAppSettings({
-      ...emptyAppSettings,
+      ...settings,
       whatsappForwardStatusWhitelist: "12025550108@c.us",
       whatsappForwardStatusBlacklist: "441234567890@c.us",
     })).toThrow("WHATSAPP_FORWARD_STATUS_WHITELIST and WHATSAPP_FORWARD_STATUS_BLACKLIST cannot both be set");

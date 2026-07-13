@@ -5,6 +5,8 @@ import {
   defaultEnvFilePath,
   loadRuntimeEnv,
   loadSmtpPassword,
+  normalizeSmtpPassword,
+  SMTP_PASSWORD_SECRET,
 } from "../config.js";
 import { SmtpEmailSender } from "../adapters/email/smtp-email-sender.js";
 import {
@@ -12,7 +14,6 @@ import {
   secretStoreModes,
 } from "../adapters/secrets/secret-store-factory.js";
 import { EnvFileSettingsStore } from "./env-file-settings-store.js";
-import { SecretStatus } from "./secret-status.js";
 import { BotProcess } from "./bot-process.js";
 import {
   settingsToEmailConfig,
@@ -33,7 +34,6 @@ const envFilePath = process.env.MESSAGE_HUB_ENV_FILE ?? defaultEnvFilePath();
 loadRuntimeEnv();
 const settingsStore = new EnvFileSettingsStore(envFilePath);
 const secretStore = await createSecretStore();
-const secretStatus = new SecretStatus(secretStore);
 const botScript = process.env.NODE_ENV === "production" ? "start" : "dev";
 const botProcess = new BotProcess({
   command: "npm",
@@ -106,7 +106,7 @@ async function route(
 
   if (request.method === "POST" && url.pathname === "/api/secrets/smtp-password") {
     const body = await readJson<{ password: string }>(request);
-    await secretStatus.setSmtpPassword(body.password);
+    await secretStore.set(SMTP_PASSWORD_SECRET, normalizeSmtpPassword(body.password));
     sendJson(response, 200, await readState());
     return;
   }
@@ -115,7 +115,7 @@ async function route(
     request.method === "DELETE" &&
     url.pathname === "/api/secrets/smtp-password"
   ) {
-    await secretStatus.deleteSmtpPassword();
+    await secretStore.delete(SMTP_PASSWORD_SECRET);
     sendJson(response, 200, await readState());
     return;
   }
@@ -159,7 +159,7 @@ async function readState(): Promise<{
     envFilePath,
     settings: await settingsStore.read(),
     secrets: {
-      smtpPasswordConfigured: await secretStatus.hasSmtpPassword(),
+      smtpPasswordConfigured: Boolean(await secretStore.get(SMTP_PASSWORD_SECRET)),
     },
     bot: botProcess.snapshot(),
   };
@@ -708,34 +708,15 @@ ${secretStoreOptions()}
       }
 
       function readSettings() {
-        return {
-          whatsappPhoneNumber: form.whatsappPhoneNumber.value.trim(),
-          messageHubSecretStore: form.messageHubSecretStore.value,
-          messageHubSecretFile: form.messageHubSecretFile.value.trim(),
-          smtpHost: form.smtpHost.value.trim(),
-          smtpPort: form.smtpPort.value.trim(),
-          smtpSecure: form.smtpSecure.value === "true",
-          smtpUser: form.smtpUser.value.trim(),
-          emailFrom: form.emailFrom.value.trim(),
-          emailTo: form.emailTo.value.trim(),
-          emailMessageIdDomain: form.emailMessageIdDomain.value.trim(),
-          whatsappForwardStatusesEnabled: form.whatsappForwardStatusesEnabled.value === "true",
-          whatsappForwardStatusWhitelist: form.whatsappForwardStatusWhitelist.value.trim(),
-          whatsappForwardStatusBlacklist: form.whatsappForwardStatusBlacklist.value.trim(),
-          whatsappForwardGroupsEnabled: form.whatsappForwardGroupsEnabled.value === "true",
-          whatsappForwardGroupWhitelist: form.whatsappForwardGroupWhitelist.value.trim(),
-          whatsappForwardGroupBlacklist: form.whatsappForwardGroupBlacklist.value.trim(),
-          emailToWhatsappEnabled: form.emailToWhatsappEnabled.value === "true",
-          emailToWhatsappSubjectPrefix: form.emailToWhatsappSubjectPrefix.value.trim(),
-          emailToWhatsappPollSeconds: form.emailToWhatsappPollSeconds.value.trim(),
-          transactionCategoryRequestEnabled: form.transactionCategoryRequestEnabled.value === "true",
-          transactionCategoryRequestSubjectPrefix: form.transactionCategoryRequestSubjectPrefix.value.trim(),
-          transactionCategoryRequestRecipientPhoneNumber: form.transactionCategoryRequestRecipientPhoneNumber.value.trim(),
-          imapHost: form.imapHost.value.trim(),
-          imapPort: form.imapPort.value.trim(),
-          imapSecure: form.imapSecure.value === "true",
-          imapUser: form.imapUser.value.trim(),
-        };
+        const settings = Object.fromEntries(
+          [...new FormData(form)].map(([key, value]) => [key, value.trim()]),
+        );
+
+        for (const key of ["smtpSecure", "whatsappForwardStatusesEnabled", "whatsappForwardGroupsEnabled", "emailToWhatsappEnabled", "transactionCategoryRequestEnabled", "imapSecure"]) {
+          settings[key] = settings[key] === "true";
+        }
+
+        return settings;
       }
 
       function renderState(state) {
@@ -745,11 +726,7 @@ ${secretStoreOptions()}
         renderBot(state.bot);
 
         for (const [key, value] of Object.entries(state.settings)) {
-          if (key === "smtpSecure" || key === "whatsappForwardStatusesEnabled" || key === "whatsappForwardGroupsEnabled" || key === "emailToWhatsappEnabled" || key === "transactionCategoryRequestEnabled" || key === "imapSecure") {
-            form[key].value = String(value);
-          } else {
-            form[key].value = value ?? "";
-          }
+          form[key].value = String(value ?? "");
         }
       }
 
@@ -792,124 +769,83 @@ ${secretStoreOptions()}
         renderState(state);
       }
 
-      form.addEventListener("submit", async event => {
-        event.preventDefault();
-        settingsNotice.className = "notice";
-        settingsNotice.textContent = "Saving...";
+      async function runAction(notice, pending, action) {
+        notice.className = "notice";
+        notice.textContent = pending;
 
         try {
-          const state = await api("/api/settings", {
+          notice.textContent = await action();
+        } catch (error) {
+          notice.className = "notice error";
+          notice.textContent = error.message;
+        }
+      }
+
+      form.addEventListener("submit", async event => {
+        event.preventDefault();
+        await runAction(settingsNotice, "Saving...", async () => {
+          renderState(await api("/api/settings", {
             method: "PUT",
             body: JSON.stringify({ settings: readSettings() }),
-          });
-          renderState(state);
-          settingsNotice.textContent = "Saved.";
-        } catch (error) {
-          settingsNotice.className = "notice error";
-          settingsNotice.textContent = error.message;
-        }
+          }));
+          return "Saved.";
+        });
       });
 
       secretForm.addEventListener("submit", async event => {
         event.preventDefault();
-        secretNotice.className = "notice";
-        secretNotice.textContent = "Saving...";
-
-        try {
-          const state = await api("/api/secrets/smtp-password", {
+        await runAction(secretNotice, "Saving...", async () => {
+          renderState(await api("/api/secrets/smtp-password", {
             method: "POST",
             body: JSON.stringify({ password: secretForm.password.value }),
-          });
+          }));
           secretForm.password.value = "";
-          renderState(state);
-          secretNotice.textContent = "Saved.";
-        } catch (error) {
-          secretNotice.className = "notice error";
-          secretNotice.textContent = error.message;
-        }
+          return "Saved.";
+        });
       });
 
-      document.querySelector("#delete-secret").addEventListener("click", async () => {
-        secretNotice.className = "notice";
-        secretNotice.textContent = "Deleting...";
+      document.querySelector("#delete-secret").addEventListener("click", () =>
+        runAction(secretNotice, "Deleting...", async () => {
+          renderState(await api("/api/secrets/smtp-password", { method: "DELETE" }));
+          return "Deleted.";
+        }),
+      );
 
-        try {
-          const state = await api("/api/secrets/smtp-password", {
-            method: "DELETE",
-          });
-          renderState(state);
-          secretNotice.textContent = "Deleted.";
-        } catch (error) {
-          secretNotice.className = "notice error";
-          secretNotice.textContent = error.message;
-        }
-      });
-
-      document.querySelector("#test-email").addEventListener("click", async () => {
-        settingsNotice.className = "notice";
-        settingsNotice.textContent = "Sending...";
-
-        try {
+      document.querySelector("#test-email").addEventListener("click", () =>
+        runAction(settingsNotice, "Sending...", async () => {
           await api("/api/test-email", { method: "POST" });
-          settingsNotice.textContent = "Test email sent.";
-        } catch (error) {
-          settingsNotice.className = "notice error";
-          settingsNotice.textContent = error.message;
-        }
-      });
+          return "Test email sent.";
+        }),
+      );
 
-      document.querySelector("#start-bot").addEventListener("click", async () => {
-        runNotice.className = "notice";
-        runNotice.textContent = "Starting...";
-
-        try {
+      document.querySelector("#start-bot").addEventListener("click", () =>
+        runAction(runNotice, "Starting...", async () => {
           renderBot(await api("/api/bot/start", { method: "POST" }));
-          runNotice.textContent = "";
-        } catch (error) {
-          runNotice.className = "notice error";
-          runNotice.textContent = error.message;
-        }
-      });
+          return "";
+        }),
+      );
 
-      document.querySelector("#request-pairing-code").addEventListener("click", async () => {
-        runNotice.className = "notice";
-        runNotice.textContent = "Requesting pairing code...";
-
-        try {
+      document.querySelector("#request-pairing-code").addEventListener("click", () =>
+        runAction(runNotice, "Requesting pairing code...", async () => {
           const result = await api("/api/bot/pairing-code", { method: "POST" });
-          runNotice.textContent = "Pairing code: " + result.code;
           await refresh();
-        } catch (error) {
-          runNotice.className = "notice error";
-          runNotice.textContent = error.message;
-        }
-      });
+          return "Pairing code: " + result.code;
+        }),
+      );
 
-      document.querySelector("#stop-bot").addEventListener("click", async () => {
-        runNotice.className = "notice";
-        runNotice.textContent = "Stopping...";
-
-        try {
+      document.querySelector("#stop-bot").addEventListener("click", () =>
+        runAction(runNotice, "Stopping...", async () => {
           renderBot(await api("/api/bot/stop", { method: "POST" }));
-          runNotice.textContent = "";
-        } catch (error) {
-          runNotice.className = "notice error";
-          runNotice.textContent = error.message;
-        }
-      });
+          return "";
+        }),
+      );
 
-      document.querySelector("#copy-logs").addEventListener("click", async () => {
-        runNotice.className = "notice";
-        runNotice.textContent = "Copying logs...";
-
-        try {
+      document.querySelector("#copy-logs").addEventListener("click", () =>
+        runAction(runNotice, "Copying logs...", async () => {
           await navigator.clipboard.writeText(latestLogText);
-          runNotice.textContent = "Logs copied.";
-        } catch (error) {
-          runNotice.className = "notice error";
-          runNotice.textContent = "Could not copy logs.";
-        }
-      });
+          return "Logs copied.";
+        }),
+      );
 
       setInterval(async () => {
         try {

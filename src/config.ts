@@ -1,7 +1,6 @@
 import { existsSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
-import { config as loadDotenv } from "dotenv";
 import type { SecretRef, SecretStore } from "./ports/secret-store.js";
 
 export const PROJECT_NAME = "message-automation-hub";
@@ -73,7 +72,7 @@ export function loadRuntimeEnv(env = process.env): void {
   const path = env.MESSAGE_HUB_ENV_FILE ?? defaultEnvFilePath();
 
   if (existsSync(path)) {
-    loadDotenv({ path, override: false });
+    process.loadEnvFile(path);
   }
 }
 
@@ -91,6 +90,16 @@ export async function loadSmtpPassword(secretStore: SecretStore): Promise<string
   }
 
   return password;
+}
+
+export function normalizeSmtpPassword(password: string): string {
+  const normalized = password.replaceAll(" ", "").trim();
+
+  if (!normalized) {
+    throw new Error("SMTP password cannot be empty");
+  }
+
+  return normalized;
 }
 
 export function loadConfig(

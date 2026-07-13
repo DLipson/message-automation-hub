@@ -14,7 +14,6 @@
     "test": "vitest run"
   },
   "dependencies": {
-    "dotenv": "^16.4.7",
     "imapflow": "^1.4.2",
     "mailparser": "^3.9.11",
     "nodemailer": "^9.0.1",
@@ -32,4 +31,3 @@
     "keytar": "^7.9.0"
   }
 }
-

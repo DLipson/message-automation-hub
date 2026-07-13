@@ -1,7 +1,8 @@
 import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import { dirname } from "node:path";
-import { parse } from "dotenv";
+import { parseEnv } from "node:util";
 import {
+  appSettingsToEnv,
   emptyAppSettings,
   envToAppSettings,
   type AppSettings,
@@ -13,7 +14,7 @@ export class EnvFileSettingsStore {
   async read(): Promise<AppSettings> {
     try {
       const content = await readFile(this.filePath, "utf8");
-      return envToAppSettings(parse(content));
+      return envToAppSettings(parseEnv(content));
     } catch (error) {
       if (isFileMissing(error)) {
         return emptyAppSettings;
@@ -32,40 +33,9 @@ export class EnvFileSettingsStore {
   }
 
   private serialize(settings: AppSettings): string {
-    return [
-      `WHATSAPP_PHONE_NUMBER=${formatEnvValue(settings.whatsappPhoneNumber)}`,
-      `MESSAGE_HUB_SECRET_STORE=${formatEnvValue(settings.messageHubSecretStore)}`,
-      `MESSAGE_HUB_SECRET_FILE=${formatEnvValue(settings.messageHubSecretFile)}`,
-      "",
-      `SMTP_HOST=${formatEnvValue(settings.smtpHost)}`,
-      `SMTP_PORT=${formatEnvValue(settings.smtpPort)}`,
-      `SMTP_SECURE=${formatEnvValue(String(settings.smtpSecure))}`,
-      `SMTP_USER=${formatEnvValue(settings.smtpUser)}`,
-      "",
-      `EMAIL_FROM=${formatEnvValue(settings.emailFrom)}`,
-      `EMAIL_TO=${formatEnvValue(settings.emailTo)}`,
-      `EMAIL_MESSAGE_ID_DOMAIN=${formatEnvValue(settings.emailMessageIdDomain)}`,
-      "",
-      `WHATSAPP_FORWARD_STATUSES_ENABLED=${formatEnvValue(String(settings.whatsappForwardStatusesEnabled))}`,
-      `WHATSAPP_FORWARD_STATUS_WHITELIST=${formatEnvValue(settings.whatsappForwardStatusWhitelist)}`,
-      `WHATSAPP_FORWARD_STATUS_BLACKLIST=${formatEnvValue(settings.whatsappForwardStatusBlacklist)}`,
-      `WHATSAPP_FORWARD_GROUPS_ENABLED=${formatEnvValue(String(settings.whatsappForwardGroupsEnabled))}`,
-      `WHATSAPP_FORWARD_GROUP_WHITELIST=${formatEnvValue(settings.whatsappForwardGroupWhitelist)}`,
-      `WHATSAPP_FORWARD_GROUP_BLACKLIST=${formatEnvValue(settings.whatsappForwardGroupBlacklist)}`,
-      "",
-      `EMAIL_TO_WHATSAPP_ENABLED=${formatEnvValue(String(settings.emailToWhatsappEnabled))}`,
-      `EMAIL_TO_WHATSAPP_SUBJECT_PREFIX=${formatEnvValue(settings.emailToWhatsappSubjectPrefix)}`,
-      `EMAIL_TO_WHATSAPP_POLL_SECONDS=${formatEnvValue(settings.emailToWhatsappPollSeconds)}`,
-      "",
-      `TRANSACTION_CATEGORY_REQUEST_ENABLED=${formatEnvValue(String(settings.transactionCategoryRequestEnabled))}`,
-      `TRANSACTION_CATEGORY_REQUEST_SUBJECT_PREFIX=${formatEnvValue(settings.transactionCategoryRequestSubjectPrefix)}`,
-      `TRANSACTION_CATEGORY_REQUEST_RECIPIENT_PHONE_NUMBER=${formatEnvValue(settings.transactionCategoryRequestRecipientPhoneNumber)}`,
-      `IMAP_HOST=${formatEnvValue(settings.imapHost)}`,
-      `IMAP_PORT=${formatEnvValue(settings.imapPort)}`,
-      `IMAP_SECURE=${formatEnvValue(String(settings.imapSecure))}`,
-      `IMAP_USER=${formatEnvValue(settings.imapUser)}`,
-      "",
-    ].join("\n");
+    return `${Object.entries(appSettingsToEnv(settings))
+      .map(([key, value]) => `${key}=${formatEnvValue(value)}`)
+      .join("\n")}\n`;
   }
 }
 

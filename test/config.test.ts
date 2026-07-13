@@ -5,6 +5,7 @@ import {
   defaultEnvFilePath,
   loadConfig,
   loadSmtpPassword,
+  normalizeSmtpPassword,
 } from "../src/config.js";
 import type { SecretStore } from "../src/ports/secret-store.js";
 
@@ -225,3 +226,13 @@ describe("loadConfig", () => {
   });
 });
 
+
+describe("normalizeSmtpPassword", () => {
+  it("removes spaces from app passwords", () => {
+    expect(normalizeSmtpPassword("abcd efgh ijkl mnop")).toBe("abcdefghijklmnop");
+  });
+
+  it("rejects empty passwords", () => {
+    expect(() => normalizeSmtpPassword(" ")).toThrow("SMTP password cannot be empty");
+  });
+});
