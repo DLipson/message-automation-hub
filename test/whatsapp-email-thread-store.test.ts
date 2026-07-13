@@ -28,14 +28,14 @@ describe("JsonWhatsAppEmailThreadStore", () => {
     const filePath = await tempPath("threads.json");
     const store = new JsonWhatsAppEmailThreadStore(filePath);
 
-    const thread = await store.getOrCreate("127513921597547@lid", "Alice");
+    const thread = await store.getOrCreate("127513921597547@lid", "Alice - 127513921597547@lid");
     const sameThread = await new JsonWhatsAppEmailThreadStore(filePath)
       .getOrCreate("127513921597547@lid", "Alice changed");
 
     expect(sameThread).toEqual(thread);
     await expect(store.findByToken(thread.token)).resolves.toEqual(thread);
     await expect(store.findByMessageId(thread.rootMessageId)).resolves.toEqual(thread);
-    expect(thread.subject).toBe(`WhatsApp: Alice [wa:${thread.token}]`);
+    expect(thread.subject).toBe(`WhatsApp message from Alice - 127513921597547@lid [wa:${thread.token}]`);
   });
 
   it("uses the configured message ID domain for new threads", async () => {
@@ -44,7 +44,7 @@ describe("JsonWhatsAppEmailThreadStore", () => {
       { messageIdDomain: "mail.example.test" },
     );
 
-    const thread = await store.getOrCreate("127513921597547@lid", "Alice");
+    const thread = await store.getOrCreate("127513921597547@lid", "Alice - 127513921597547@lid");
 
     expect(thread.rootMessageId).toBe(`<wa.${thread.token}@mail.example.test>`);
     expect(forwardedMessageId(thread, "message-1")).toContain("@mail.example.test>");
@@ -75,7 +75,7 @@ describe("JsonWhatsAppEmailThreadStore", () => {
 
     const thread = await store.getOrCreate("12025550108@c.us", "\n A Friend\r\n");
 
-    expect(thread.subject).toBe(`WhatsApp: A Friend [wa:${thread.token}]`);
+    expect(thread.subject).toBe(`WhatsApp message from A Friend [wa:${thread.token}]`);
   });
 
   it("uses an explicit thread store path when configured", () => {

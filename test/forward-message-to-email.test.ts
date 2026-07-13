@@ -30,7 +30,7 @@ class CapturingThreadStore implements WhatsAppEmailThreadStore {
   readonly thread: WhatsAppEmailThread = {
     token: "lid123",
     chatId: "127513921597547@lid",
-    subject: "WhatsApp: Alice [wa:lid123]",
+    subject: "WhatsApp message from Alice - 127513921597547@lid [wa:lid123]",
     rootMessageId: "<wa.lid123@message-automation-hub.local>",
   };
 
@@ -52,7 +52,7 @@ class FakeThreadStore implements WhatsAppEmailThreadStore {
   readonly thread: WhatsAppEmailThread = {
     token: "abc123",
     chatId: "12025550108@c.us",
-    subject: "WhatsApp: A Friend [wa:abc123]",
+    subject: "WhatsApp message from A Friend - 12025550108 [wa:abc123]",
     rootMessageId: "<wa.abc123@message-automation-hub.local>",
   };
 
@@ -76,6 +76,7 @@ describe("ForwardMessageToEmail", () => {
     const forwarder = new ForwardMessageToEmail(emailSender, {
       from: "bot@example.com",
       to: "me@example.com",
+      threadStore: new FakeThreadStore(),
     }, logger);
 
     await forwarder.handle({
@@ -93,12 +94,16 @@ describe("ForwardMessageToEmail", () => {
       {
         from: "bot@example.com",
         to: "me@example.com",
-        subject: "WhatsApp message from A Friend",
+        subject: "WhatsApp message from A Friend - 12025550108 [wa:abc123]",
+        messageId: "<wa.abc123.bWVzc2FnZS0x@message-automation-hub.local>",
+        inReplyTo: "<wa.abc123@message-automation-hub.local>",
+        references: ["<wa.abc123@message-automation-hub.local>"],
         text: [
-          "From: A Friend (12025550108@c.us)",
-          "Received: 2026-06-21T08:00:00.000Z",
-          "",
           "Can you call me?",
+          "",
+          "Received: 21 Jun 2026, 08:00 UTC",
+          "",
+          replyMarker,
         ].join("\n"),
       },
     ]);
@@ -132,19 +137,16 @@ describe("ForwardMessageToEmail", () => {
       {
         from: "bot@example.com",
         to: "me@example.com",
-        subject: "WhatsApp: A Friend [wa:abc123]",
+        subject: "WhatsApp message from A Friend - 12025550108 [wa:abc123]",
         messageId: "<wa.abc123.bWVzc2FnZS0x@message-automation-hub.local>",
         inReplyTo: "<wa.abc123@message-automation-hub.local>",
         references: ["<wa.abc123@message-automation-hub.local>"],
         text: [
-          "A Friend:",
-          "",
           "Can you call me?",
           "",
-          replyMarker,
+          "Received: 21 Jun 2026, 08:00 UTC",
           "",
-          "From: A Friend (12025550108@c.us)",
-          "Received: 2026-06-21T08:00:00.000Z",
+          replyMarker,
         ].join("\n"),
       },
     ]);
@@ -172,9 +174,11 @@ describe("ForwardMessageToEmail", () => {
 
     expect(threadStore.created).toEqual([{
       chatId: "127513921597547@lid",
-      displayName: "Alice",
+      displayName: "Alice - 127513921597547@lid",
     }]);
-    expect(emailSender.sent[0]?.subject).toBe("WhatsApp: Alice [wa:lid123]");
+    expect(emailSender.sent[0]?.subject).toBe(
+      "WhatsApp message from Alice - 127513921597547@lid [wa:lid123]",
+    );
   });
 
   it("forwards up to five WhatsApp attachments", async () => {
@@ -190,6 +194,7 @@ describe("ForwardMessageToEmail", () => {
     const forwarder = new ForwardMessageToEmail(emailSender, {
       from: "bot@example.com",
       to: "me@example.com",
+      threadStore: new FakeThreadStore(),
     });
 
     await forwarder.handle({
@@ -205,12 +210,16 @@ describe("ForwardMessageToEmail", () => {
       {
         from: "bot@example.com",
         to: "me@example.com",
-        subject: "WhatsApp message from A Friend",
+        subject: "WhatsApp message from A Friend - 12025550108 [wa:abc123]",
+        messageId: "<wa.abc123.bWVzc2FnZS0x@message-automation-hub.local>",
+        inReplyTo: "<wa.abc123@message-automation-hub.local>",
+        references: ["<wa.abc123@message-automation-hub.local>"],
         text: [
-          "From: A Friend (12025550108@c.us)",
-          "Received: 2026-06-21T08:00:00.000Z",
-          "",
           "Photos",
+          "",
+          "Received: 21 Jun 2026, 08:00 UTC",
+          "",
+          replyMarker,
           "",
           "Note: 1 additional attachment(s) were not forwarded because the per-message limit is 5.",
         ].join("\n"),
@@ -225,6 +234,7 @@ describe("ForwardMessageToEmail", () => {
     const forwarder = new ForwardMessageToEmail(emailSender, {
       from: "bot@example.com",
       to: "me@example.com",
+      threadStore: new FakeThreadStore(),
     });
 
     await forwarder.handle({
@@ -248,6 +258,7 @@ describe("ForwardMessageToEmail", () => {
     const forwarder = new ForwardMessageToEmail(emailSender, {
       from: "bot@example.com",
       to: "me@example.com",
+      threadStore: new FakeThreadStore(),
     });
 
     await forwarder.handle({
@@ -268,6 +279,7 @@ describe("ForwardMessageToEmail", () => {
     const forwarder = new ForwardMessageToEmail(emailSender, {
       from: "bot@example.com",
       to: "me@example.com",
+      threadStore: new FakeThreadStore(),
     }, logger);
 
     await forwarder.handle({

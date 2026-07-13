@@ -24,7 +24,7 @@ export class JsonWhatsAppEmailThreadStore implements WhatsAppEmailThreadStore {
 
   async getOrCreate(
     chatId: string,
-    displayName: string,
+    contactLabel: string,
   ): Promise<WhatsAppEmailThread> {
     return await this.enqueue(async () => {
       const threads = await this.readThreads();
@@ -38,7 +38,7 @@ export class JsonWhatsAppEmailThreadStore implements WhatsAppEmailThreadStore {
       const thread = {
         token,
         chatId,
-        subject: `WhatsApp: ${cleanSubject(displayName)} [wa:${token}]`,
+        subject: `WhatsApp message from ${cleanSubject(contactLabel)} [wa:${token}]`,
         rootMessageId: `<wa.${token}@${this.messageIdDomain}>`,
       };
 
