@@ -1,5 +1,4 @@
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
-import { ConsoleAppLogger } from "./adapters/logging/console-app-logger.js";
 import { createSecretStore } from "./adapters/secrets/secret-store-factory.js";
 import { WhatsAppWebChannel } from "./adapters/whatsapp/whatsapp-web-channel.js";
 import { loadConfig, loadRuntimeEnv, loadSmtpPassword } from "./config.js";
@@ -24,7 +23,7 @@ loadRuntimeEnv();
 const secretStore = await createSecretStore();
 const smtpPassword = await loadSmtpPassword(secretStore);
 const config = loadConfig(process.env, { smtpPassword });
-const logger = new ConsoleAppLogger();
+const logger = console;
 const pluginContext = await registerPlugins([
   createLoggerPlugin(logger),
   createEmailPlugin(config),
