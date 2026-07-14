@@ -65,6 +65,9 @@ describe("ImapEmailInbox", () => {
     await inbox.markFailed(email());
 
     const client = imapMock.clients[0];
+    expect(client?.messageFlagsAdd).toHaveBeenCalledWith(42, ["\\Seen"], {
+      uid: true,
+    });
     expect(client?.messageFlagsRemove).toHaveBeenCalledWith(42, ["WA/Sent"], {
       uid: true,
       useLabels: true,

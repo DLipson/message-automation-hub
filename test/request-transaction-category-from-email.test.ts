@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { InboundEmail } from "../src/domain/email.js";
 import type { MediaAttachment } from "../src/domain/media.js";
-import type { EmailInbox } from "../src/ports/email-inbox.js";
+import type { EmailInbox, EmailStatusMarker } from "../src/ports/email-inbox.js";
 import type {
   WhatsAppDirectImage,
   WhatsAppDirectMessage,
@@ -12,8 +12,9 @@ import {
 } from "../src/automations/transaction-category-request/request-from-email.js";
 import { ProcessEmailAutomations } from "../src/use-cases/process-email-automations.js";
 
-class FakeEmailInbox implements EmailInbox {
+class FakeEmailInbox implements EmailInbox, EmailStatusMarker {
   readonly processed: InboundEmail[] = [];
+  readonly failed: InboundEmail[] = [];
 
   constructor(private readonly emails: InboundEmail[]) {}
 
@@ -23,6 +24,12 @@ class FakeEmailInbox implements EmailInbox {
 
   async markProcessed(email: InboundEmail): Promise<void> {
     this.processed.push(email);
+  }
+
+  async markSent(): Promise<void> {}
+
+  async markFailed(email: InboundEmail): Promise<void> {
+    this.failed.push(email);
   }
 }
 
@@ -108,17 +115,31 @@ describe("RequestTransactionCategoryFromEmail", () => {
     expect(inbox.processed).toEqual([]);
   });
 
-  it("does not mark the email processed when WhatsApp sending fails", async () => {
-    const email = emailCommand({
+  it("marks failed WhatsApp sends without blocking later emails", async () => {
+    const failedEmail = emailCommand({
+      id: "failed-email",
       subject: "TXCAT: request",
       attachments: [csvAttachment(
         "Date,Payee,Outflow,Inflow\n2026-06-01,Grocery Store,₪42.00,₪0.00",
       )],
     });
-    const inbox = new FakeEmailInbox([email]);
+    const laterEmail = emailCommand({
+      id: "later-email",
+      subject: "TXCAT: request",
+      attachments: [csvAttachment(
+        "Date,Payee,Outflow,Inflow\n2026-06-02,Book Store,₪10.00,₪0.00",
+      )],
+    });
+    const inbox = new FakeEmailInbox([failedEmail, laterEmail]);
+    const whatsapp = new FakeWhatsAppSender();
+    let attempts = 0;
     const request = new RequestTransactionCategoryFromEmail(inbox, {
-      async sendMessage() {
-        throw new Error("send failed");
+      async sendMessage(message) {
+        attempts += 1;
+        if (attempts === 1) {
+          throw new Error("send failed");
+        }
+        whatsapp.sent.push(message);
       },
       async sendImage() {},
     }, {
@@ -126,9 +147,11 @@ describe("RequestTransactionCategoryFromEmail", () => {
       recipientPhoneNumber: "972501234567",
     });
 
-    await expect(new ProcessEmailAutomations(inbox, [request]).processUnread()).rejects.toThrow("send failed");
+    await new ProcessEmailAutomations(inbox, [request]).processUnread();
 
-    expect(inbox.processed).toEqual([]);
+    expect(inbox.processed).toEqual([laterEmail]);
+    expect(inbox.failed).toEqual([failedEmail]);
+    expect(whatsapp.sent).toHaveLength(1);
   });
 
   it("ignores matching emails without a CSV attachment", async () => {

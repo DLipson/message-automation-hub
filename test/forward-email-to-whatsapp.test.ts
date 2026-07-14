@@ -300,7 +300,7 @@ describe("ForwardEmailToWhatsApp", () => {
       },
     });
 
-    await expect(new ProcessEmailAutomations(inbox, [forwarder]).processUnread()).rejects.toThrow("send failed");
+    await new ProcessEmailAutomations(inbox, [forwarder]).processUnread();
 
     expect(inbox.processed).toEqual([email]);
     expect(inbox.failed).toEqual([email]);

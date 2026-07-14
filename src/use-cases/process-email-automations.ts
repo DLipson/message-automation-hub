@@ -1,5 +1,5 @@
 import type { InboundEmail } from "../domain/email.js";
-import type { EmailInbox } from "../ports/email-inbox.js";
+import type { EmailInbox, EmailStatusMarker } from "../ports/email-inbox.js";
 
 export type EmailAutomationBatch = {
   sentWhatsAppImage: boolean;
@@ -73,10 +73,15 @@ export class ProcessEmailAutomations {
     const batch: EmailAutomationBatch = { sentWhatsAppImage: false };
 
     for (const email of emails) {
-      for (const handler of this.handlers) {
-        if (await handler.handle(email, batch)) {
-          break;
+      try {
+        for (const handler of this.handlers) {
+          if (await handler.handle(email, batch)) {
+            break;
+          }
         }
+      } catch (error) {
+        console.error("Email automation failed for email " + email.id + ": " + formatError(error));
+        await this.markFailed(email);
       }
     }
 
@@ -84,8 +89,28 @@ export class ProcessEmailAutomations {
       await fetched.complete();
     }
   }
+
+  private async markFailed(email: InboundEmail): Promise<void> {
+    if (!isEmailStatusMarker(this.inbox)) {
+      return;
+    }
+
+    try {
+      await this.inbox.markFailed(email);
+    } catch (error) {
+      console.error("Could not mark failed email " + email.id + ": " + formatError(error));
+    }
+  }
 }
 
 function isIgnoredSubjectSeparator(character: string): boolean {
   return /\s|-/.test(character);
+}
+
+function isEmailStatusMarker(inbox: EmailInbox): inbox is EmailInbox & EmailStatusMarker {
+  return "markFailed" in inbox && typeof inbox.markFailed === "function";
+}
+
+function formatError(error: unknown): string {
+  return error instanceof Error ? error.stack ?? error.message : String(error);
 }

@@ -80,7 +80,7 @@ export class ForwardEmailToWhatsApp implements EmailAutomationHandler {
       return true;
     } catch (error) {
       await this.markFailedAndNotify(email, command, error);
-      throw error;
+      return true;
     }
   }
 
