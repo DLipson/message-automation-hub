@@ -150,9 +150,7 @@ export class WhatsAppWebChannel implements InboundChannel, WhatsAppSender, Whats
 
   async sendChatMessage(message: WhatsAppChatMessage): Promise<void> {
     const sentMessage = await this.sendWithContext(
-      this.client.sendMessage(message.chatId, message.text, {
-        waitUntilMsgSent: true,
-      }),
+      this.client.sendMessage(message.chatId, message.text),
       `WhatsApp text send to ${message.chatId}`,
     );
 
@@ -174,7 +172,6 @@ export class WhatsAppWebChannel implements InboundChannel, WhatsAppSender, Whats
     const sentMessage = await this.sendWithContext(
       this.client.sendMessage(chatId, media, {
         caption: message.text,
-        waitUntilMsgSent: true,
       }),
       `WhatsApp image send to ${chatId}`,
     );
@@ -193,7 +190,7 @@ export class WhatsAppWebChannel implements InboundChannel, WhatsAppSender, Whats
       );
     }
 
-    return `${phoneNumber}@c.us`;
+    return contactId._serialized;
   }
 
   private async sendWithContext<T>(
