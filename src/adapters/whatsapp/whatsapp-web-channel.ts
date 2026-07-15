@@ -193,7 +193,7 @@ export class WhatsAppWebChannel implements InboundChannel, WhatsAppSender, Whats
       );
     }
 
-    return contactId._serialized;
+    return `${phoneNumber}@c.us`;
   }
 
   private async sendWithContext<T>(
