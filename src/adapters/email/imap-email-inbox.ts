@@ -77,7 +77,8 @@ export class ImapEmailInbox implements EmailInbox, EmailStatusMarker {
   }
   async markProcessed(email: InboundEmail): Promise<void> { await this.updateEmail(email, async (client, uid) => { await client.messageFlagsAdd(uid, ["\\Seen"], { uid: true }); }); }
   async markSent(email: InboundEmail): Promise<void> { await this.updateEmail(email, async (client, uid) => { await client.messageFlagsRemove(uid, ["WA/Failed"], { uid: true, useLabels: true }); await client.messageFlagsAdd(uid, ["WA/Sent"], { uid: true, useLabels: true }); }); }
-  async markFailed(email: InboundEmail): Promise<void> { await this.updateEmail(email, async (client, uid) => { await client.messageFlagsAdd(uid, ["\\Seen"], { uid: true }); await client.messageFlagsRemove(uid, ["WA/Sent"], { uid: true, useLabels: true }); await client.messageFlagsAdd(uid, ["WA/Failed"], { uid: true, useLabels: true }); }); }
+  async markDelivered(email: InboundEmail): Promise<void> { await this.updateEmail(email, async (client, uid) => { await client.messageFlagsRemove(uid, ["WA/Sent", "WA/Failed"], { uid: true, useLabels: true }); await client.messageFlagsAdd(uid, ["WA/Delivered"], { uid: true, useLabels: true }); }); }
+  async markFailed(email: InboundEmail): Promise<void> { await this.updateEmail(email, async (client, uid) => { await client.messageFlagsAdd(uid, ["\\Seen"], { uid: true }); await client.messageFlagsRemove(uid, ["WA/Sent", "WA/Delivered"], { uid: true, useLabels: true }); await client.messageFlagsAdd(uid, ["WA/Failed"], { uid: true, useLabels: true }); }); }
 
   private async updateEmail(email: InboundEmail, update: (client: ImapFlow, uid: number) => Promise<void>): Promise<void> {
     const uid = Number(email.id); if (!Number.isInteger(uid)) throw new Error(`Cannot update email without numeric IMAP uid: ${email.id}`);

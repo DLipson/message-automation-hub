@@ -9,6 +9,8 @@ import type {
   InboundMessageHandler,
 } from "../../ports/inbound-channel.js";
 import type {
+  DeliveryStatus,
+  SentMessage,
   WhatsAppChatMessage,
   WhatsAppChatSender,
   WhatsAppDirectImage,
@@ -63,6 +65,7 @@ export class WhatsAppWebChannel implements InboundChannel, WhatsAppSender, Whats
   private readonly readyNotification?: WhatsAppWebChannelConfig["readyNotification"];
   private handler?: InboundMessageHandler;
   private pairingCodeRequests = 0;
+  private deliveryQueue: Array<(status: DeliveryStatus) => void> = [];
 
   constructor(config: WhatsAppWebChannelConfig) {
     this.phoneNumber = config.phoneNumber;
@@ -123,6 +126,31 @@ export class WhatsAppWebChannel implements InboundChannel, WhatsAppSender, Whats
       );
     });
 
+    this.client.on("message_create", msg => {
+      if (!msg.fromMe) return;
+
+      const resolveDelivery = this.deliveryQueue.shift();
+      if (!resolveDelivery) return;
+
+      const onAck = (ackMsg: any, ack: number) => {
+        if (ackMsg.id._serialized !== msg.id._serialized) return;
+
+        if (ack === 2) {
+          resolveDelivery("delivered");
+          this.client.removeListener("message_ack", onAck);
+        } else if (ack === -1) {
+          resolveDelivery("error");
+          this.client.removeListener("message_ack", onAck);
+        }
+      };
+      this.client.on("message_ack", onAck);
+
+      setTimeout(() => {
+        resolveDelivery("sent");
+        this.client.removeListener("message_ack", onAck);
+      }, this.sendTimeoutMs);
+    });
+
     this.client.on("message", async rawMessage => {
       if (!this.handler) {
         return;
@@ -152,19 +180,19 @@ export class WhatsAppWebChannel implements InboundChannel, WhatsAppSender, Whats
     );
   }
 
-  async sendMessage(message: WhatsAppDirectMessage): Promise<void> {
+  async sendMessage(message: WhatsAppDirectMessage): Promise<SentMessage> {
     const chatId = await this.ensureChatForPhoneNumber(message.phoneNumber);
-    await this.sendChatMessage({ chatId, text: message.text });
+    return this.sendChatMessage({ chatId, text: message.text });
   }
 
-  async sendChatMessage(message: WhatsAppChatMessage): Promise<void> {
-    await this.sendWithContext(
+  async sendChatMessage(message: WhatsAppChatMessage): Promise<SentMessage> {
+    return this.sendAndTrack(
+      message.chatId,
       this.client.sendMessage(message.chatId, message.text),
-      `WhatsApp text send to ${message.chatId}`,
     );
   }
 
-  async sendImage(message: WhatsAppDirectImage): Promise<void> {
+  async sendImage(message: WhatsAppDirectImage): Promise<SentMessage> {
     const chatId = await this.ensureChatForPhoneNumber(message.phoneNumber);
     const media = new MessageMedia(
       message.image.contentType,
@@ -172,11 +200,11 @@ export class WhatsAppWebChannel implements InboundChannel, WhatsAppSender, Whats
       message.image.filename,
     );
 
-    await this.sendWithContext(
+    return this.sendAndTrack(
+      chatId,
       this.client.sendMessage(chatId, media, {
         caption: message.text,
       }),
-      `WhatsApp image send to ${chatId}`,
     );
   }
 
@@ -200,6 +228,28 @@ export class WhatsAppWebChannel implements InboundChannel, WhatsAppSender, Whats
         `Failed to send ready notification: ${formatEventValue(error)}`,
       );
     }
+  }
+
+  private async sendAndTrack(
+    chatId: string,
+    send: Promise<any>,
+  ): Promise<SentMessage> {
+    let resolveDelivery!: (status: DeliveryStatus) => void;
+    const delivery = new Promise<DeliveryStatus>(resolve => {
+      resolveDelivery = resolve;
+    });
+
+    this.deliveryQueue.push(resolveDelivery);
+
+    try {
+      await this.sendWithContext(send, `WhatsApp send to ${chatId}`);
+    } catch (error) {
+      const idx = this.deliveryQueue.indexOf(resolveDelivery);
+      if (idx !== -1) this.deliveryQueue.splice(idx, 1);
+      throw error;
+    }
+
+    return { delivery };
   }
 
   private async ensureChatForPhoneNumber(phoneNumber: string): Promise<string> {

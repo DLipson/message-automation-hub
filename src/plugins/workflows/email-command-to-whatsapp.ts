@@ -26,7 +26,7 @@ export function createEmailCommandToWhatsAppPlugin(config: AppConfig): HubPlugin
       const inbox = ctx.require<EmailCommandInbox>(capabilities.emailInbox);
       const emailSender = ctx.require<EmailSender>(capabilities.emailSender);
 
-      await inbox.ensureLabels(["WA/Sent", "WA/Failed"]);
+      await inbox.ensureLabels(["WA/Sent", "WA/Delivered", "WA/Failed"]);
       ctx.require<EmailAutomationHandler[]>(
         capabilities.emailAutomationHandlers,
       ).push(new ForwardEmailToWhatsApp(

@@ -3,6 +3,7 @@ import type { InboundEmail } from "../src/domain/email.js";
 import type { AppLogger } from "../src/ports/app-logger.js";
 import type { EmailInbox } from "../src/ports/email-inbox.js";
 import type {
+  SentMessage,
   WhatsAppChatMessage,
   WhatsAppChatSender,
 } from "../src/ports/whatsapp-sender.js";
@@ -30,12 +31,13 @@ class FakeWhatsApp implements WhatsAppChatSender {
 
   constructor(private readonly error?: Error) {}
 
-  async sendChatMessage(message: WhatsAppChatMessage): Promise<void> {
+  async sendChatMessage(message: WhatsAppChatMessage): Promise<SentMessage> {
     if (this.error) {
       throw this.error;
     }
 
     this.sent.push(message);
+    return { delivery: new Promise(() => {}) };
   }
 }
 

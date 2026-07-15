@@ -22,6 +22,7 @@ class FakeEmailInbox implements EmailInbox, EmailStatusMarker {
   }
 
   async markSent(): Promise<void> {}
+  async markDelivered(): Promise<void> {}
 
   async markFailed(email: InboundEmail): Promise<void> {
     this.failed.push(email);

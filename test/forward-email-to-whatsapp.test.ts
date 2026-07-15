@@ -5,6 +5,7 @@ import type { AppLogger } from "../src/ports/app-logger.js";
 import type { EmailInbox } from "../src/ports/email-inbox.js";
 import type { EmailMessage, EmailSender } from "../src/ports/email-sender.js";
 import type {
+  SentMessage,
   WhatsAppDirectImage,
   WhatsAppDirectMessage,
   WhatsAppSender,
@@ -15,6 +16,7 @@ import { ForwardEmailToWhatsApp } from "../src/use-cases/forward-email-to-whatsa
 class FakeEmailInbox implements EmailInbox {
   readonly processed: InboundEmail[] = [];
   readonly sent: InboundEmail[] = [];
+  readonly delivered: InboundEmail[] = [];
   readonly failed: InboundEmail[] = [];
 
   constructor(private readonly emails: InboundEmail[]) {}
@@ -29,6 +31,10 @@ class FakeEmailInbox implements EmailInbox {
 
   async markSent(email: InboundEmail): Promise<void> {
     this.sent.push(email);
+  }
+
+  async markDelivered(email: InboundEmail): Promise<void> {
+    this.delivered.push(email);
   }
 
   async markFailed(email: InboundEmail): Promise<void> {
@@ -48,12 +54,14 @@ class FakeWhatsAppSender implements WhatsAppSender {
   readonly sent: WhatsAppDirectMessage[] = [];
   readonly sentImages: WhatsAppDirectImage[] = [];
 
-  async sendMessage(message: WhatsAppDirectMessage): Promise<void> {
+  async sendMessage(message: WhatsAppDirectMessage): Promise<SentMessage> {
     this.sent.push(message);
+    return { delivery: new Promise(resolve => setTimeout(() => resolve("sent"), 0)) };
   }
 
-  async sendImage(message: WhatsAppDirectImage): Promise<void> {
+  async sendImage(message: WhatsAppDirectImage): Promise<SentMessage> {
     this.sentImages.push(message);
+    return { delivery: new Promise(resolve => setTimeout(() => resolve("sent"), 0)) };
   }
 }
 
@@ -88,8 +96,10 @@ describe("ForwardEmailToWhatsApp", () => {
     ]);
     expect(whatsapp.sentImages).toEqual([]);
     expect(inbox.processed).toEqual([email]);
-    expect(inbox.sent).toEqual([email]);
     expect(inbox.failed).toEqual([]);
+
+    await new Promise(resolve => setTimeout(resolve, 10));
+    expect(inbox.sent).toEqual([email]);
     expect(logger.messages).toEqual([
       'Detected command email email-1 with subject "wa+1 (202) 555-0108".',
       "Forwarding email email-1 to WhatsApp number 12025550108.",
@@ -286,10 +296,12 @@ describe("ForwardEmailToWhatsApp", () => {
     const inbox = new FakeEmailInbox([email]);
     const notificationSender = new FakeEmailSender();
     const whatsapp: WhatsAppSender = {
-      async sendMessage() {
+      async sendMessage(): Promise<SentMessage> {
         throw new Error("send failed");
       },
-      async sendImage() {},
+      async sendImage(): Promise<SentMessage> {
+        return { delivery: new Promise(() => {}) };
+      },
     };
     const forwarder = new ForwardEmailToWhatsApp(inbox, whatsapp, {
       subjectPrefix: "WA:",

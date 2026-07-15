@@ -12,5 +12,6 @@ export interface EmailInbox {
 
 export interface EmailStatusMarker {
   markSent(email: InboundEmail): Promise<void>;
+  markDelivered(email: InboundEmail): Promise<void>;
   markFailed(email: InboundEmail): Promise<void>;
 }

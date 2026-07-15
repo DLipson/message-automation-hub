@@ -34,11 +34,12 @@ describe("ImapEmailInbox", () => {
   it("creates Gmail status labels", async () => {
     const inbox = new ImapEmailInbox(config());
 
-    await inbox.ensureLabels(["WA/Sent", "WA/Failed"]);
+    await inbox.ensureLabels(["WA/Sent", "WA/Delivered", "WA/Failed"]);
 
     const client = imapMock.clients[0];
     expect(client?.mailboxCreate).toHaveBeenCalledWith("WA");
     expect(client?.mailboxCreate).toHaveBeenCalledWith("WA/Sent");
+    expect(client?.mailboxCreate).toHaveBeenCalledWith("WA/Delivered");
     expect(client?.mailboxCreate).toHaveBeenCalledWith("WA/Failed");
   });
 
@@ -59,7 +60,24 @@ describe("ImapEmailInbox", () => {
     });
   });
 
-  it("adds Gmail failed label without replacing existing labels", async () => {
+  it("adds Gmail delivered label and removes sent/failed labels", async () => {
+    const inbox = new ImapEmailInbox(config());
+
+    await inbox.markDelivered(email());
+
+    const client = imapMock.clients[0];
+    expect(client?.mailboxOpen).toHaveBeenCalledWith("INBOX");
+    expect(client?.messageFlagsRemove).toHaveBeenCalledWith(42, ["WA/Sent", "WA/Failed"], {
+      uid: true,
+      useLabels: true,
+    });
+    expect(client?.messageFlagsAdd).toHaveBeenCalledWith(42, ["WA/Delivered"], {
+      uid: true,
+      useLabels: true,
+    });
+  });
+
+  it("adds Gmail failed label and clears both sent and delivered labels", async () => {
     const inbox = new ImapEmailInbox(config());
 
     await inbox.markFailed(email());
@@ -68,7 +86,7 @@ describe("ImapEmailInbox", () => {
     expect(client?.messageFlagsAdd).toHaveBeenCalledWith(42, ["\\Seen"], {
       uid: true,
     });
-    expect(client?.messageFlagsRemove).toHaveBeenCalledWith(42, ["WA/Sent"], {
+    expect(client?.messageFlagsRemove).toHaveBeenCalledWith(42, ["WA/Sent", "WA/Delivered"], {
       uid: true,
       useLabels: true,
     });

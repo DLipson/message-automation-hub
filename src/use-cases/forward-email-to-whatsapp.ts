@@ -3,7 +3,7 @@ import { isImageAttachment, type MediaAttachment } from "../domain/media.js";
 import type { AppLogger } from "../ports/app-logger.js";
 import type { EmailInbox, EmailStatusMarker } from "../ports/email-inbox.js";
 import type { EmailSender } from "../ports/email-sender.js";
-import type { WhatsAppSender } from "../ports/whatsapp-sender.js";
+import type { SentMessage, WhatsAppSender } from "../ports/whatsapp-sender.js";
 import type {
   EmailAutomationBatch,
   EmailAutomationHandler,
@@ -69,14 +69,24 @@ export class ForwardEmailToWhatsApp implements EmailAutomationHandler {
     }
 
     try {
+      const sentMsg = command.image
+        ? await this.forwardImageEmail(email, { ...command, image: command.image })
+        : await this.forwardTextEmail(email, command);
+
       if (command.image) {
-        await this.forwardImageEmail(email, { ...command, image: command.image });
         batch.sentWhatsAppImage = true;
-      } else {
-        await this.forwardTextEmail(email, command);
       }
 
-      await this.inbox.markSent(email);
+      sentMsg.delivery.then(async status => {
+        if (status === "delivered") {
+          await this.inbox.markDelivered(email);
+        } else if (status === "sent") {
+          await this.inbox.markSent(email);
+        } else {
+          await this.inbox.markFailed(email);
+        }
+      }).catch(() => {});
+
       return true;
     } catch (error) {
       await this.markFailedAndNotify(email, command, error);
@@ -87,12 +97,12 @@ export class ForwardEmailToWhatsApp implements EmailAutomationHandler {
   private async forwardTextEmail(
     email: InboundEmail,
     command: EmailCommand,
-  ): Promise<void> {
+  ): Promise<SentMessage> {
     this.logger.info(
       `Forwarding email ${email.id} to WhatsApp number ${command.phoneNumber}.`,
     );
 
-    await this.whatsapp.sendMessage({
+    const sentMsg = await this.whatsapp.sendMessage({
       phoneNumber: command.phoneNumber,
       text: command.text,
     });
@@ -100,12 +110,14 @@ export class ForwardEmailToWhatsApp implements EmailAutomationHandler {
     this.logger.info(
       `Forwarded email ${email.id} to WhatsApp number ${command.phoneNumber}.`,
     );
+
+    return sentMsg;
   }
 
   private async forwardImageEmail(
     email: InboundEmail,
     command: EmailCommand & { image: MediaAttachment },
-  ): Promise<void> {
+  ): Promise<SentMessage> {
     this.logger.info(
       `Forwarding image email ${email.id} to WhatsApp number ${command.phoneNumber}.`,
     );
@@ -116,7 +128,7 @@ export class ForwardEmailToWhatsApp implements EmailAutomationHandler {
       );
     }
 
-    await this.whatsapp.sendImage({
+    const sentMsg = await this.whatsapp.sendImage({
       phoneNumber: command.phoneNumber,
       text: command.text,
       image: command.image,
@@ -126,6 +138,8 @@ export class ForwardEmailToWhatsApp implements EmailAutomationHandler {
     this.logger.info(
       `Forwarded image email ${email.id} to WhatsApp number ${command.phoneNumber}.`,
     );
+
+    return sentMsg;
   }
 
   private async markFailedAndNotify(

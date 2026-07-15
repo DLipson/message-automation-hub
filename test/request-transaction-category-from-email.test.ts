@@ -3,6 +3,7 @@ import type { InboundEmail } from "../src/domain/email.js";
 import type { MediaAttachment } from "../src/domain/media.js";
 import type { EmailInbox, EmailStatusMarker } from "../src/ports/email-inbox.js";
 import type {
+  SentMessage,
   WhatsAppDirectImage,
   WhatsAppDirectMessage,
   WhatsAppSender,
@@ -27,6 +28,7 @@ class FakeEmailInbox implements EmailInbox, EmailStatusMarker {
   }
 
   async markSent(): Promise<void> {}
+  async markDelivered(): Promise<void> {}
 
   async markFailed(email: InboundEmail): Promise<void> {
     this.failed.push(email);
@@ -37,12 +39,14 @@ class FakeWhatsAppSender implements WhatsAppSender {
   readonly sent: WhatsAppDirectMessage[] = [];
   readonly sentImages: WhatsAppDirectImage[] = [];
 
-  async sendMessage(message: WhatsAppDirectMessage): Promise<void> {
+  async sendMessage(message: WhatsAppDirectMessage): Promise<SentMessage> {
     this.sent.push(message);
+    return { delivery: new Promise(() => {}) };
   }
 
-  async sendImage(message: WhatsAppDirectImage): Promise<void> {
+  async sendImage(message: WhatsAppDirectImage): Promise<SentMessage> {
     this.sentImages.push(message);
+    return { delivery: new Promise(() => {}) };
   }
 }
 
@@ -134,14 +138,17 @@ describe("RequestTransactionCategoryFromEmail", () => {
     const whatsapp = new FakeWhatsAppSender();
     let attempts = 0;
     const request = new RequestTransactionCategoryFromEmail(inbox, {
-      async sendMessage(message) {
+      async sendMessage(message): Promise<SentMessage> {
         attempts += 1;
         if (attempts === 1) {
           throw new Error("send failed");
         }
         whatsapp.sent.push(message);
+        return { delivery: new Promise(() => {}) };
       },
-      async sendImage() {},
+      async sendImage(): Promise<SentMessage> {
+        return { delivery: new Promise(() => {}) };
+      },
     }, {
       subjectPrefix: "TXCAT:",
       recipientPhoneNumber: "972501234567",

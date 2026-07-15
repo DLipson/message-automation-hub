@@ -7,6 +7,7 @@ import type { EmailMessage, EmailSender } from "../src/ports/email-sender.js";
 import type { InboundChannel, InboundMessageHandler } from "../src/ports/inbound-channel.js";
 import type { AppLogger } from "../src/ports/app-logger.js";
 import type {
+  SentMessage,
   WhatsAppChatMessage,
   WhatsAppChatSender,
   WhatsAppDirectImage,
@@ -44,8 +45,9 @@ class FakeEmailSender implements EmailSender {
 class FakeWhatsAppChatSender implements WhatsAppChatSender {
   readonly sent: WhatsAppChatMessage[] = [];
 
-  async sendChatMessage(message: WhatsAppChatMessage): Promise<void> {
+  async sendChatMessage(message: WhatsAppChatMessage): Promise<SentMessage> {
     this.sent.push(message);
+    return { delivery: new Promise(() => {}) };
   }
 }
 
@@ -53,12 +55,14 @@ class FakeWhatsAppSender implements WhatsAppSender {
   readonly sent: WhatsAppDirectMessage[] = [];
   readonly sentImages: WhatsAppDirectImage[] = [];
 
-  async sendMessage(message: WhatsAppDirectMessage): Promise<void> {
+  async sendMessage(message: WhatsAppDirectMessage): Promise<SentMessage> {
     this.sent.push(message);
+    return { delivery: new Promise(() => {}) };
   }
 
-  async sendImage(message: WhatsAppDirectImage): Promise<void> {
+  async sendImage(message: WhatsAppDirectImage): Promise<SentMessage> {
     this.sentImages.push(message);
+    return { delivery: new Promise(() => {}) };
   }
 }
 
@@ -71,6 +75,7 @@ class FakeCommandInbox implements EmailInbox, EmailStatusMarker {
 
   async markProcessed(): Promise<void> {}
   async markSent(): Promise<void> {}
+  async markDelivered(): Promise<void> {}
   async markFailed(): Promise<void> {}
 
   async ensureLabels(labels: string[]): Promise<void> {
@@ -157,7 +162,7 @@ describe("bundled plugins", () => {
 
     await registerPlugins([createEmailCommandToWhatsAppPlugin(config())], ctx);
 
-    expect(inbox.labels).toEqual([["WA/Sent", "WA/Failed"]]);
+    expect(inbox.labels).toEqual([["WA/Sent", "WA/Delivered", "WA/Failed"]]);
     expect(handlers).toHaveLength(1);
   });
 });

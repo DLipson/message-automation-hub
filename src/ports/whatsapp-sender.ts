@@ -16,11 +16,17 @@ export type WhatsAppChatMessage = {
   text: string;
 };
 
+export type DeliveryStatus = 'sent' | 'delivered' | 'error';
+
+export interface SentMessage {
+  delivery: Promise<DeliveryStatus>;
+}
+
 export interface WhatsAppSender {
-  sendMessage(message: WhatsAppDirectMessage): Promise<void>;
-  sendImage(message: WhatsAppDirectImage): Promise<void>;
+  sendMessage(message: WhatsAppDirectMessage): Promise<SentMessage>;
+  sendImage(message: WhatsAppDirectImage): Promise<SentMessage>;
 }
 
 export interface WhatsAppChatSender {
-  sendChatMessage(message: WhatsAppChatMessage): Promise<void>;
+  sendChatMessage(message: WhatsAppChatMessage): Promise<SentMessage>;
 }

@@ -20,3 +20,17 @@
 - **Root Cause** - `ForwardEmailToWhatsApp` logged every unread email before checking whether the email matched the configured WhatsApp command subject prefix.
 - **Fix** - Command parsing now happens before detection logging, so unrelated unread emails are skipped silently and only matching command emails are logged.
 - **Verification** - Added a regression assertion that ignored emails produce no logs, confirmed it failed before the fix, then ran the targeted test, full test suite, and TypeScript build successfully.
+
+## 2026-07-15 - Reply email includes quoted original text
+
+- **Bug** - When replying to a forwarded WhatsApp email via Gmail, the reply sent back to WhatsApp included the standard email quoting (`On ... wrote:` and `>`-prefixed lines) along with the user's actual reply text.
+- **Root Cause** - `replyTextFor` only split on `--- Reply above this line ---` and took the text before it, but Gmail's quoting appears before that marker in the email body.
+- **Fix** - After extracting text before the reply marker, `replyTextFor` now scans for common email quoting patterns (`On ... wrote:`, `---Original Message---`, `>`-prefixed lines) and strips everything from the first such line onward.
+- **Verification** - All 90 existing tests pass; no new tests added for the quoting patterns.
+
+## 2026-07-15 - Deferred email labeling with delivery ack tracking
+
+- **Change** - `sendMessage`/`sendImage` now return `SentMessage` with a `delivery` promise that resolves to `'sent'`, `'delivered'`, or `'error'` based on `message_ack` event. Gmail IMAP label `WA/Delivered` added.
+- **How it works** - A FIFO queue of delivery resolvers is pushed before each `client.sendMessage()` call. The `message_create` event (fired by `Msg.on('add', ...)` which fires regardless of the LID `Msg.get()` bug) pops the queue and sets up a `message_ack` listener. Ack=2 resolves `'delivered'`, ack=-1 resolves `'error'`, and a timeout resolves `'sent'` (message was sent to server even if device ack never arrives).
+- **Labeling deferred** - Before: `markSent` called immediately after send. After: `ForwardEmailToWhatsApp.handle()` fires `sentMsg.delivery.then(...)` and returns without blocking. The email is labeled once the ack settles, with no label visible in the meantime.
+- **Verification** - All 91 tests pass (one new IMAP test, updated fake implementations for the new return types).
