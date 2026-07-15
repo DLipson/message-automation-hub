@@ -158,16 +158,10 @@ export class WhatsAppWebChannel implements InboundChannel, WhatsAppSender, Whats
   }
 
   async sendChatMessage(message: WhatsAppChatMessage): Promise<void> {
-    const sentMessage = await this.sendWithContext(
+    await this.sendWithContext(
       this.client.sendMessage(message.chatId, message.text),
       `WhatsApp text send to ${message.chatId}`,
     );
-
-    if (!sentMessage) {
-      throw new Error(
-        `WhatsApp text send to ${message.chatId} returned no message`,
-      );
-    }
   }
 
   async sendImage(message: WhatsAppDirectImage): Promise<void> {
@@ -178,16 +172,12 @@ export class WhatsAppWebChannel implements InboundChannel, WhatsAppSender, Whats
       message.image.filename,
     );
 
-    const sentMessage = await this.sendWithContext(
+    await this.sendWithContext(
       this.client.sendMessage(chatId, media, {
         caption: message.text,
       }),
       `WhatsApp image send to ${chatId}`,
     );
-
-    if (!sentMessage) {
-      throw new Error(`WhatsApp image send to ${chatId} returned no message`);
-    }
   }
 
   private async sendReadyNotification(): Promise<void> {
