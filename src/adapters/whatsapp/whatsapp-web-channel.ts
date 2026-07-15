@@ -233,8 +233,10 @@ export class WhatsAppWebChannel implements InboundChannel, WhatsAppSender, Whats
       : { id: rawMessage.from };
     const attachments = await this.attachmentsFor(rawMessage);
 
+    const messageId = rawMessage.id?._serialized ?? `unknown-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+
     return {
-      id: rawMessage.id._serialized,
+      id: messageId,
       channel: "whatsapp",
       from,
       text: rawMessage.body,

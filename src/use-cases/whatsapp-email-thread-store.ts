@@ -35,7 +35,7 @@ export function forwardedMessageId(
 }
 
 function safeMessageIdPart(value: string): string {
-  return Buffer.from(value).toString("base64url");
+  return Buffer.from(value ?? "unknown").toString("base64url");
 }
 
 function messageIdDomainFor(thread: WhatsAppEmailThread): string {
