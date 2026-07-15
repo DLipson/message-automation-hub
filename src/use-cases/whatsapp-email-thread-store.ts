@@ -24,7 +24,21 @@ export function tokenFromMessageId(messageId: string): string | null {
 }
 
 export function replyTextFor(text: string): string {
-  return text.split(replyMarker)[0]?.trim() ?? "";
+  const beforeMarker = text.split(replyMarker)[0]?.trim() ?? "";
+  if (!beforeMarker) return "";
+
+  const lines = beforeMarker.split("\n");
+  const quotedStartIndex = lines.findIndex((line) => {
+    const trimmed = line.trim();
+    return (
+      /^On\s.+wrote:\s*$/.test(trimmed) ||
+      /^-+\s?Original\sMessage-+\s*$/.test(trimmed) ||
+      trimmed.startsWith(">")
+    );
+  });
+
+  if (quotedStartIndex === -1) return beforeMarker;
+  return lines.slice(0, quotedStartIndex).join("\n").trim();
 }
 
 export function forwardedMessageId(
