@@ -3,6 +3,7 @@ import { platform } from "node:os";
 import { appDefaults } from "../../config.js";
 import type { InboundMessage } from "../../domain/message.js";
 import type { MediaAttachment } from "../../domain/media.js";
+import type { EmailSender } from "../../ports/email-sender.js";
 import type {
   InboundChannel,
   InboundMessageHandler,
@@ -29,6 +30,11 @@ export type WhatsAppWebChannelConfig = {
   sendTimeoutMs?: number;
   forwardStatuses?: WhatsAppForwardFilter;
   forwardGroups?: WhatsAppForwardFilter;
+  readyNotification?: {
+    sender: EmailSender;
+    from: string;
+    to: string;
+  };
 };
 
 type RawWhatsAppMedia = {
@@ -54,6 +60,7 @@ export class WhatsAppWebChannel implements InboundChannel, WhatsAppSender, Whats
   private readonly sendTimeoutMs: number;
   private readonly forwardStatuses: WhatsAppForwardFilter;
   private readonly forwardGroups: WhatsAppForwardFilter;
+  private readonly readyNotification?: WhatsAppWebChannelConfig["readyNotification"];
   private handler?: InboundMessageHandler;
   private pairingCodeRequests = 0;
 
@@ -62,6 +69,7 @@ export class WhatsAppWebChannel implements InboundChannel, WhatsAppSender, Whats
     this.sendTimeoutMs = config.sendTimeoutMs ?? appDefaults.whatsappSendTimeoutMs;
     this.forwardStatuses = config.forwardStatuses ?? {};
     this.forwardGroups = config.forwardGroups ?? {};
+    this.readyNotification = config.readyNotification;
     this.client = new Client({
       authStrategy: new LocalAuth(),
       puppeteer: {
@@ -92,6 +100,7 @@ export class WhatsAppWebChannel implements InboundChannel, WhatsAppSender, Whats
 
     this.client.on("ready", () => {
       logWhatsApp("Client is ready.");
+      this.sendReadyNotification();
     });
 
     this.client.on("disconnected", reason => {
@@ -144,7 +153,7 @@ export class WhatsAppWebChannel implements InboundChannel, WhatsAppSender, Whats
   }
 
   async sendMessage(message: WhatsAppDirectMessage): Promise<void> {
-    const chatId = await this.resolveChatId(message.phoneNumber);
+    const chatId = await this.ensureChatForPhoneNumber(message.phoneNumber);
     await this.sendChatMessage({ chatId, text: message.text });
   }
 
@@ -162,7 +171,7 @@ export class WhatsAppWebChannel implements InboundChannel, WhatsAppSender, Whats
   }
 
   async sendImage(message: WhatsAppDirectImage): Promise<void> {
-    const chatId = await this.resolveChatId(message.phoneNumber);
+    const chatId = await this.ensureChatForPhoneNumber(message.phoneNumber);
     const media = new MessageMedia(
       message.image.contentType,
       message.image.content.toString("base64"),
@@ -181,7 +190,29 @@ export class WhatsAppWebChannel implements InboundChannel, WhatsAppSender, Whats
     }
   }
 
-  private async resolveChatId(phoneNumber: string): Promise<string> {
+  private async sendReadyNotification(): Promise<void> {
+    if (!this.readyNotification) return;
+
+    try {
+      await this.readyNotification.sender.send({
+        from: this.readyNotification.from,
+        to: this.readyNotification.to,
+        subject: "Message Hub: WhatsApp client ready",
+        text: [
+          `WhatsApp client (${this.phoneNumber}) initialized successfully.`,
+          "",
+          `Time: ${new Date().toISOString()}`,
+        ].join("\n"),
+      });
+      logWhatsApp("Sent ready notification email.");
+    } catch (error) {
+      logWhatsApp(
+        `Failed to send ready notification: ${formatEventValue(error)}`,
+      );
+    }
+  }
+
+  private async ensureChatForPhoneNumber(phoneNumber: string): Promise<string> {
     const contactId = await this.client.getNumberId(phoneNumber);
 
     if (!contactId) {
@@ -190,7 +221,37 @@ export class WhatsAppWebChannel implements InboundChannel, WhatsAppSender, Whats
       );
     }
 
-    return contactId._serialized;
+    const lid = contactId._serialized;
+    const cusId = `${phoneNumber}@c.us`;
+
+    const chatId = await this.client.pupPage!.evaluate(
+      async (lidStr: string, cusStr: string) => {
+        for (const id of [lidStr, cusStr]) {
+          try {
+            const wid = (window as any).require("WAWebWidFactory").createWid(id);
+            const existing = (window as any).require("WAWebCollections").Chat.get(wid);
+            if (existing) return id;
+
+            const result = await (window as any)
+              .require("WAWebFindChatAction")
+              .findOrCreateLatestChat(wid);
+            const chat = result?.chat ?? result;
+            if (chat) return id;
+          } catch {}
+        }
+        return null;
+      },
+      lid,
+      cusId,
+    );
+
+    if (!chatId) {
+      throw new Error(
+        `Could not create WhatsApp chat for ${phoneNumber}`,
+      );
+    }
+
+    return chatId;
   }
 
   private async sendWithContext<T>(
