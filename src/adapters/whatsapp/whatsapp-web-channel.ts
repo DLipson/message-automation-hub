@@ -232,10 +232,11 @@ export class WhatsAppWebChannel implements InboundChannel, WhatsAppSender, Whats
             const existing = (window as any).require("WAWebCollections").Chat.get(wid);
             if (existing) return id;
 
-            const result = await (window as any)
+            await (window as any)
               .require("WAWebFindChatAction")
               .findOrCreateLatestChat(wid);
-            const chat = result?.chat ?? result;
+
+            const chat = (window as any).require("WAWebCollections").Chat.get(wid);
             if (chat) return id;
           } catch {}
         }
