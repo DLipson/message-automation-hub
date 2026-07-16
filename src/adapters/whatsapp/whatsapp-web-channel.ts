@@ -52,6 +52,7 @@ type RawWhatsAppMessage = {
   body: string;
   timestamp: number;
   hasMedia?: boolean;
+  type?: string;
   downloadMedia?: () => Promise<RawWhatsAppMedia | undefined>;
   _data?: { notifyName?: string };
 };
@@ -351,7 +352,7 @@ export class WhatsAppWebChannel implements InboundChannel, WhatsAppSender, Whats
       return [];
     }
 
-    const media = await rawMessage.downloadMedia();
+    const media = await this.tryDownloadMedia(rawMessage);
 
     if (!media) {
       return [];
@@ -362,6 +363,106 @@ export class WhatsAppWebChannel implements InboundChannel, WhatsAppSender, Whats
       contentType: media.mimetype,
       ...(media.filename ? { filename: media.filename } : {}),
     }];
+  }
+
+  private async tryDownloadMedia(
+    rawMessage: RawWhatsAppMessage,
+  ): Promise<RawWhatsAppMedia | undefined> {
+    try {
+      const media = await rawMessage.downloadMedia();
+      if (media) return media;
+    } catch (error) {
+      logWhatsApp(
+        `downloadMedia() failed, trying direct download: ${formatEventValue(error)}`,
+      );
+    }
+
+    try {
+      return await this.downloadMediaViaPage(rawMessage.id._serialized);
+    } catch (error) {
+      logWhatsApp(
+        `Direct media download also failed: ${formatEventValue(error)}`,
+      );
+      return undefined;
+    }
+  }
+
+  private async downloadMediaViaPage(
+    msgId: string,
+  ): Promise<RawWhatsAppMedia | undefined> {
+    const result = await this.client.pupPage!.evaluate(
+      async (id: string) => {
+        const msg = (window as any).require("WAWebCollections").Msg.get(id);
+        if (!msg?.mediaData) return undefined;
+
+        if (msg.mediaData.mediaStage !== "RESOLVED") {
+          try {
+            await msg.downloadMedia({
+              downloadEvenIfExpensive: true,
+              rmrReason: 1,
+            });
+          } catch {
+            return undefined;
+          }
+        }
+
+        if (
+          msg.mediaData.mediaStage.includes("ERROR") ||
+          msg.mediaData.mediaStage === "FETCHING"
+        ) {
+          return undefined;
+        }
+
+        try {
+          const mockQpl = {
+            addAnnotations: function () {
+              return this;
+            },
+            addPoint: function () {
+              return this;
+            },
+          };
+
+          const mediaType = msg.type === "ptt" ? "audio" : msg.type;
+
+          const decryptedMedia = await (window as any)
+            .require("WAWebDownloadManager")
+            .downloadManager.downloadAndMaybeDecrypt({
+              directPath: msg.directPath,
+              encFilehash: msg.encFilehash,
+              filehash: msg.filehash,
+              mediaKey: msg.mediaKey,
+              mediaKeyTimestamp: msg.mediaKeyTimestamp,
+              type: mediaType,
+              signal: new AbortController().signal,
+              downloadQpl: mockQpl,
+            });
+
+          const data = await (window as any).WWebJS.arrayBufferToBase64Async(
+            decryptedMedia,
+          );
+
+          return {
+            data,
+            mimetype: msg.mimetype,
+            filename: msg.filename,
+            filesize: msg.size,
+          };
+        } catch (e: any) {
+          if (e.status && e.status === 404) return undefined;
+          throw e;
+        }
+      },
+      msgId,
+    );
+
+    if (!result) return undefined;
+
+    return {
+      data: result.data,
+      mimetype: result.mimetype,
+      filename: result.filename ?? null,
+    };
   }
 }
 

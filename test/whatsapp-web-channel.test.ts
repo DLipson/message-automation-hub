@@ -98,6 +98,31 @@ describe("WhatsAppWebChannel", () => {
     })]);
   });
 
+  it("handles media download failure gracefully", async () => {
+    const log = vi.spyOn(console, "log").mockImplementation(() => {});
+    const received: unknown[] = [];
+    const channel = new WhatsAppWebChannel({ phoneNumber: "12025550108" });
+    channel.onMessage(async message => {
+      received.push(message);
+    });
+
+    await channel.start();
+    await emitMessage({
+      from: "12025550108@c.us",
+      body: "voice note",
+      hasMedia: true,
+      downloadMedia: async () => {
+        throw new Error("Puppeteer evaluation failed");
+      },
+    });
+
+    expect(received).toEqual([expect.objectContaining({
+      text: "voice note",
+    })]);
+    expect(Object.prototype.hasOwnProperty.call(received[0], "attachments")).toBe(false);
+    expect(log.mock.calls.flat().join("\n")).toContain("downloadMedia() failed");
+  });
+
   it("filters WhatsApp status messages by status settings", async () => {
     const received: unknown[] = [];
     const channel = new WhatsAppWebChannel({
