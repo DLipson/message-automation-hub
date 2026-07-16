@@ -369,7 +369,7 @@ export class WhatsAppWebChannel implements InboundChannel, WhatsAppSender, Whats
     rawMessage: RawWhatsAppMessage,
   ): Promise<RawWhatsAppMedia | undefined> {
     try {
-      const media = await rawMessage.downloadMedia();
+      const media = await rawMessage.downloadMedia!();
       if (media) return media;
     } catch (error) {
       logWhatsApp(
