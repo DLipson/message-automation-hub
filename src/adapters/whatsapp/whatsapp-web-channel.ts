@@ -254,20 +254,21 @@ export class WhatsAppWebChannel implements InboundChannel, WhatsAppSender, Whats
   }
 
   private async ensureChatForPhoneNumber(phoneNumber: string): Promise<string> {
-    const contactId = await this.client.getNumberId(phoneNumber);
-
-    if (!contactId) {
-      throw new Error(
-        `WhatsApp number ${phoneNumber} is not registered or reachable`,
-      );
+    let lid: string | undefined;
+    try {
+      const contactId = await this.client.getNumberId(phoneNumber);
+      if (contactId) lid = contactId._serialized;
+    } catch {
+      // getNumberId can fail with transient Puppeteer page errors;
+      // fall through to direct evaluation with both formats
     }
 
-    const lid = contactId._serialized;
     const cusId = `${phoneNumber}@c.us`;
+    const ids = lid ? [lid, cusId] : [cusId];
 
     const chatId = await this.client.pupPage!.evaluate(
-      async (lidStr: string, cusStr: string) => {
-        for (const id of [lidStr, cusStr]) {
+      async (idList: string[]) => {
+        for (const id of idList) {
           try {
             const wid = (window as any).require("WAWebWidFactory").createWid(id);
             const existing = (window as any).require("WAWebCollections").Chat.get(wid);
@@ -283,8 +284,7 @@ export class WhatsAppWebChannel implements InboundChannel, WhatsAppSender, Whats
         }
         return null;
       },
-      lid,
-      cusId,
+      ids,
     );
 
     if (!chatId) {
