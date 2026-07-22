@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import type { InboundEmail } from "../src/domain/email.js";
 import type { AppLogger } from "../src/ports/app-logger.js";
 import type { EmailInbox } from "../src/ports/email-inbox.js";
+import type { EmailMessage, EmailSender } from "../src/ports/email-sender.js";
 import type {
   SentMessage,
   WhatsAppChatMessage,
@@ -38,6 +39,14 @@ class FakeWhatsApp implements WhatsAppChatSender {
 
     this.sent.push(message);
     return { delivery: new Promise(() => {}) };
+  }
+}
+
+class FakeEmailSender implements EmailSender {
+  readonly sent: EmailMessage[] = [];
+
+  async send(message: EmailMessage): Promise<void> {
+    this.sent.push(message);
   }
 }
 
@@ -164,21 +173,37 @@ describe("ReplyEmailToWhatsApp", () => {
     ]);
   });
 
-  it("does not mark the email processed when WhatsApp sending fails", async () => {
+  it("sends a failure notification email when WhatsApp sending fails", async () => {
     const email = emailCommand({
       subject: "Re: WhatsApp: Alice [wa:abc123]",
       text: "Please retry later",
     });
     const inbox = new FakeEmailInbox();
+    const notifier = new FakeEmailSender();
     const handler = new ReplyEmailToWhatsApp(
       inbox,
       new FakeWhatsApp(new Error("send failed")),
       new FakeThreadStore(thread),
+      undefined,
+      {
+        failureNotification: {
+          sender: notifier,
+          from: "bot@example.com",
+          to: "owner@example.com",
+        },
+      },
     );
 
-    await expect(handler.handle(email, { sentWhatsAppImage: false })).rejects.toThrow("send failed");
+    await expect(handler.handle(email, { sentWhatsAppImage: false })).resolves.toBe(true);
 
     expect(inbox.processed).toEqual([]);
+    expect(notifier.sent).toHaveLength(1);
+    expect(notifier.sent[0]).toMatchObject({
+      from: "bot@example.com",
+      to: "owner@example.com",
+      subject: "WA reply failed: 127513921597547@lid",
+      text: expect.stringContaining("Message Automation Hub could not send a WhatsApp reply."),
+    });
   });
 
   it("ignores the bot's own forwarded emails by generated Message-ID", async () => {

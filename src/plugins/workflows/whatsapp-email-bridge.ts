@@ -48,7 +48,14 @@ export function createWhatsAppEmailBridgePlugin(config: AppConfig): HubPlugin {
         ctx.require<WhatsAppChatSender>(capabilities.whatsappChatSender),
         threadStore,
         logger,
-        { ignoreFrom: config.email.from },
+        {
+          ignoreFrom: config.email.from,
+          failureNotification: {
+            sender: ctx.require<EmailSender>(capabilities.emailSender),
+            from: config.email.from,
+            to: config.email.to,
+          },
+        },
       ));
     },
   };
