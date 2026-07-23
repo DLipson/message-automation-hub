@@ -1,5 +1,24 @@
 # Logs
 
+## 2026-07-22 - Reply email failure notification
+
+- **Change** - `ReplyEmailToWhatsApp` now sends an email notification when forwarding a reply to WhatsApp fails. Added `failureNotification` config option with `sender`, `from`, `to`. Wired via `whatsapp-email-bridge.ts`.
+- **Verification** - Updated existing test to expect notification instead of rejecting.
+
+## 2026-07-22 - Error notifications + improved logging for WhatsAppWebChannel
+
+- **Problem** - WhatsApp media download failures were silently dropping attachments (returned `[]`). Handler crashes were logged with a cryptic message. The IMAP client logged "Connection not available" when `logout()` was called on a dropped connection.
+- **Changes** -
+  - Added `errorNotification` config to `WhatsAppWebChannel` (like `readyNotification`). Fires email on handler crash AND media download failure with full message context (ID, from, body, time, error).
+  - `tryDownloadMedia` now logs message ID and sender in the error message.
+  - `downloadMediaViaPage` now checks `pupPage` for null before using it, logs when page is unavailable.
+  - `attachmentsFor` logs when media is unavailable and fires notification.
+  - All three `client.logout()` calls in `ImapEmailInbox` are now wrapped in try-catch so connection-drop errors don't propagate.
+  - `WhatsAppWebChannel` error notification wired in `providers.ts`.
+- **Verification** - 4 new tests (message context logging, notification on handler crash, notification on media failure, no notification when unconfigured). All 96 tests pass. Typecheck clean.
+
+
+
 ## 2026-06-21 - GUI log copying and bot restart cleanup
 
 - **Bug** - The GUI log panel refreshed while selecting text, making logs hard to copy. Stopping and restarting the bot could fail with `The browser is already running` because the WhatsApp browser process kept the auth profile locked.

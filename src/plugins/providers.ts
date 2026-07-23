@@ -69,6 +69,11 @@ export function createWhatsAppWebPlugin(config: AppConfig): HubPlugin {
                 from: config.email.from,
                 to: config.email.to,
               },
+              errorNotification: {
+                sender: emailSender,
+                from: config.email.from,
+                to: config.email.to,
+              },
             }
           : {}),
       });

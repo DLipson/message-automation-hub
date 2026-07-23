@@ -37,6 +37,11 @@ export type WhatsAppWebChannelConfig = {
     from: string;
     to: string;
   };
+  errorNotification?: {
+    sender: EmailSender;
+    from: string;
+    to: string;
+  };
 };
 
 type RawWhatsAppMedia = {
@@ -64,6 +69,7 @@ export class WhatsAppWebChannel implements InboundChannel, WhatsAppSender, Whats
   private readonly forwardStatuses: WhatsAppForwardFilter;
   private readonly forwardGroups: WhatsAppForwardFilter;
   private readonly readyNotification?: WhatsAppWebChannelConfig["readyNotification"];
+  private readonly errorNotification?: WhatsAppWebChannelConfig["errorNotification"];
   private handler?: InboundMessageHandler;
   private pairingCodeRequests = 0;
   private deliveryQueue: Array<(status: DeliveryStatus) => void> = [];
@@ -74,6 +80,7 @@ export class WhatsAppWebChannel implements InboundChannel, WhatsAppSender, Whats
     this.forwardStatuses = config.forwardStatuses ?? {};
     this.forwardGroups = config.forwardGroups ?? {};
     this.readyNotification = config.readyNotification;
+    this.errorNotification = config.errorNotification;
     this.client = new Client({
       authStrategy: new LocalAuth(),
       puppeteer: {
@@ -164,7 +171,23 @@ export class WhatsAppWebChannel implements InboundChannel, WhatsAppSender, Whats
 
         await this.handler(await this.toInboundMessage(rawMessage));
       } catch (error) {
-        logWhatsApp(`Message handler failed: ${formatEventValue(error)}`);
+        const msgId = rawMessage.id?._serialized ?? "unknown";
+        const errorText = formatEventValue(error);
+        logWhatsApp(`Message handler failed for message ${msgId}: ${errorText}`);
+        await this.notifyError(
+          `WhatsApp message handler failed: ${msgId}`,
+          [
+            "Message Automation Hub encountered an error processing a WhatsApp message.",
+            "",
+            `Message ID: ${msgId}`,
+            `From: ${rawMessage.from}`,
+            `Body: ${rawMessage.body}`,
+            `Time: ${new Date(rawMessage.timestamp * 1000).toISOString()}`,
+            "",
+            "Error:",
+            errorText,
+          ].join("\n"),
+        );
       }
     });
 
@@ -228,6 +251,21 @@ export class WhatsAppWebChannel implements InboundChannel, WhatsAppSender, Whats
       logWhatsApp(
         `Failed to send ready notification: ${formatEventValue(error)}`,
       );
+    }
+  }
+
+  private async notifyError(subject: string, text: string): Promise<void> {
+    if (!this.errorNotification) return;
+
+    try {
+      await this.errorNotification.sender.send({
+        from: this.errorNotification.from,
+        to: this.errorNotification.to,
+        subject,
+        text,
+      });
+    } catch (sendError) {
+      logWhatsApp(`Failed to send error notification: ${formatEventValue(sendError)}`);
     }
   }
 
@@ -355,6 +393,21 @@ export class WhatsAppWebChannel implements InboundChannel, WhatsAppSender, Whats
     const media = await this.tryDownloadMedia(rawMessage);
 
     if (!media) {
+      const msgId = rawMessage.id._serialized;
+      logWhatsApp(`Media unavailable for message ${msgId}, forwarding without attachments`);
+      await this.notifyError(
+        `WhatsApp media download failed: ${msgId}`,
+        [
+          "Message Automation Hub could not download media from a WhatsApp message.",
+          "",
+          `Message ID: ${msgId}`,
+          `From: ${rawMessage.from}`,
+          `Body: ${rawMessage.body}`,
+          `Time: ${new Date(rawMessage.timestamp * 1000).toISOString()}`,
+          "",
+          "The message was forwarded without attachments.",
+        ].join("\n"),
+      );
       return [];
     }
 
@@ -368,20 +421,23 @@ export class WhatsAppWebChannel implements InboundChannel, WhatsAppSender, Whats
   private async tryDownloadMedia(
     rawMessage: RawWhatsAppMessage,
   ): Promise<RawWhatsAppMedia | undefined> {
+    const msgId = rawMessage.id._serialized;
+    const msgFrom = rawMessage.from;
+
     try {
       const media = await rawMessage.downloadMedia!();
       if (media) return media;
     } catch (error) {
       logWhatsApp(
-        `downloadMedia() failed, trying direct download: ${formatEventValue(error)}`,
+        `media download failed for message ${msgId} from ${msgFrom}, trying direct download: ${formatEventValue(error)}`,
       );
     }
 
     try {
-      return await this.downloadMediaViaPage(rawMessage.id._serialized);
+      return await this.downloadMediaViaPage(msgId);
     } catch (error) {
       logWhatsApp(
-        `Direct media download also failed: ${formatEventValue(error)}`,
+        `Direct media download also failed for message ${msgId}: ${formatEventValue(error)}`,
       );
       return undefined;
     }
@@ -390,7 +446,12 @@ export class WhatsAppWebChannel implements InboundChannel, WhatsAppSender, Whats
   private async downloadMediaViaPage(
     msgId: string,
   ): Promise<RawWhatsAppMedia | undefined> {
-    const result = await this.client.pupPage!.evaluate(
+    if (!this.client.pupPage) {
+      logWhatsApp(`Direct media download unavailable for ${msgId}: puppeteer page not initialized`);
+      return undefined;
+    }
+
+    const result = await this.client.pupPage.evaluate(
       async (id: string) => {
         const msg = (window as any).require("WAWebCollections").Msg.get(id);
         if (!msg?.mediaData) return undefined;

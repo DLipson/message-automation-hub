@@ -34,7 +34,16 @@ vi.mock("whatsapp-web.js", () => ({
   },
 }));
 
+import type { EmailMessage, EmailSender } from "../src/ports/email-sender.js";
 import { WhatsAppWebChannel } from "../src/adapters/whatsapp/whatsapp-web-channel.js";
+
+class FakeEmailSender implements EmailSender {
+  readonly sent: EmailMessage[] = [];
+
+  async send(message: EmailMessage): Promise<void> {
+    this.sent.push(message);
+  }
+}
 
 afterEach(() => {
   whatsappMock.clients.length = 0;
@@ -120,7 +129,109 @@ describe("WhatsAppWebChannel", () => {
       text: "voice note",
     })]);
     expect(Object.prototype.hasOwnProperty.call(received[0], "attachments")).toBe(false);
-    expect(log.mock.calls.flat().join("\n")).toContain("downloadMedia() failed");
+    expect(log.mock.calls.flat().join("\n")).toContain("media download failed for message message-1");
+  });
+
+  it("logs message context when media download fails", async () => {
+    const log = vi.spyOn(console, "log").mockImplementation(() => {});
+    const channel = new WhatsAppWebChannel({ phoneNumber: "12025550108" });
+    channel.onMessage(async () => {});
+
+    await channel.start();
+    await emitMessage({
+      from: "12025550108@c.us",
+      body: "voice note",
+      hasMedia: true,
+      downloadMedia: async () => {
+        throw new Error("Puppeteer evaluation failed");
+      },
+    });
+
+    const logs = log.mock.calls.flat().join("\n");
+    expect(logs).toContain("message-1");
+    expect(logs).toContain("12025550108@c.us");
+    expect(logs).toContain("Puppeteer evaluation failed");
+  });
+
+  it("sends error notification email when message handler crashes", async () => {
+    const log = vi.spyOn(console, "log").mockImplementation(() => {});
+    const notifier = new FakeEmailSender();
+    const channel = new WhatsAppWebChannel({
+      phoneNumber: "12025550108",
+      errorNotification: {
+        sender: notifier,
+        from: "bot@example.com",
+        to: "owner@example.com",
+      },
+    });
+    channel.onMessage(async () => {
+      throw new Error("handler crashed");
+    });
+
+    await channel.start();
+    await emitMessage({
+      from: "12025550108@c.us",
+      body: "hello",
+    });
+
+    expect(notifier.sent).toHaveLength(1);
+    expect(notifier.sent[0]).toMatchObject({
+      from: "bot@example.com",
+      to: "owner@example.com",
+      subject: "WhatsApp message handler failed: message-1",
+    });
+    expect(log.mock.calls.flat().join("\n")).toContain("Message handler failed");
+  });
+
+  it("sends error notification email when media download fails", async () => {
+    const log = vi.spyOn(console, "log").mockImplementation(() => {});
+    const notifier = new FakeEmailSender();
+    const received: unknown[] = [];
+    const channel = new WhatsAppWebChannel({
+      phoneNumber: "12025550108",
+      errorNotification: {
+        sender: notifier,
+        from: "bot@example.com",
+        to: "owner@example.com",
+      },
+    });
+    channel.onMessage(async message => {
+      received.push(message);
+    });
+
+    await channel.start();
+    await emitMessage({
+      from: "12025550108@c.us",
+      body: "voice note",
+      hasMedia: true,
+      downloadMedia: async () => {
+        throw new Error("Puppeteer evaluation failed");
+      },
+    });
+
+    expect(notifier.sent).toHaveLength(1);
+    expect(notifier.sent[0]).toMatchObject({
+      from: "bot@example.com",
+      to: "owner@example.com",
+      subject: "WhatsApp media download failed: message-1",
+    });
+    expect(log.mock.calls.flat().join("\n")).toContain("media download failed for message message-1");
+  });
+
+  it("does not send error notification when not configured", async () => {
+    const log = vi.spyOn(console, "log").mockImplementation(() => {});
+    const channel = new WhatsAppWebChannel({ phoneNumber: "12025550108" });
+    channel.onMessage(async () => {
+      throw new Error("handler crashed");
+    });
+
+    await channel.start();
+    await emitMessage({
+      from: "12025550108@c.us",
+      body: "hello",
+    });
+
+    expect(log.mock.calls.flat().join("\n")).toContain("Message handler failed");
   });
 
   it("filters WhatsApp status messages by status settings", async () => {

@@ -67,13 +67,13 @@ export class ImapEmailInbox implements EmailInbox, EmailStatusMarker {
       }
       const lastFetchedUid = selectedUids.at(-1) ?? upperUid;
       return { emails, complete: async () => { await this.writeCheckpoint({ ...state, lastUid: lastFetchedUid }); } };
-    } finally { await client.logout(); }
+    } finally { try { await client.logout(); } catch { /* connection may have dropped */ } }
   }
 
   async ensureLabels(labels: string[]): Promise<void> {
     const client = this.createClient(); await client.connect();
     try { for (const label of labelsWithParents(labels)) { try { await client.mailboxCreate(label); } catch (error) { if (!isAlreadyExistsError(error)) throw error; } } }
-    finally { await client.logout(); }
+    finally { try { await client.logout(); } catch { /* connection may have dropped */ } }
   }
   async markProcessed(email: InboundEmail): Promise<void> { await this.updateEmail(email, async (client, uid) => { await client.messageFlagsAdd(uid, ["\\Seen"], { uid: true }); }); }
   async markSent(email: InboundEmail): Promise<void> { await this.updateEmail(email, async (client, uid) => { await client.messageFlagsRemove(uid, ["WA/Failed"], { uid: true, useLabels: true }); await client.messageFlagsAdd(uid, ["WA/Sent"], { uid: true, useLabels: true }); }); }
@@ -83,7 +83,7 @@ export class ImapEmailInbox implements EmailInbox, EmailStatusMarker {
   private async updateEmail(email: InboundEmail, update: (client: ImapFlow, uid: number) => Promise<void>): Promise<void> {
     const uid = Number(email.id); if (!Number.isInteger(uid)) throw new Error(`Cannot update email without numeric IMAP uid: ${email.id}`);
     const client = this.createClient(); await client.connect();
-    try { await client.mailboxOpen("INBOX"); await update(client, uid); } finally { await client.logout(); }
+    try { await client.mailboxOpen("INBOX"); await update(client, uid); } finally { try { await client.logout(); } catch { /* connection may have dropped */ } }
   }
   private async readCheckpoint(): Promise<ImapCheckpoint | null> {
     if (!this.config.checkpointPath) return null;
