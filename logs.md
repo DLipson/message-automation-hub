@@ -1,5 +1,11 @@
 # Logs
 
+## 2026-07-24 - IMAP IDLE push notifications replace polling
+
+- **Problem** - Email-to-WhatsApp delivery took ~4 minutes despite 30s poll interval. Gmail IMAP propagation combined with poll-only architecture caused the delay.
+- **Fix** - Added `watchNewMail()` to `EmailInbox` port. `ImapEmailInbox` implements it using IMAP IDLE (persistent connection + push notifications via `exists` events + auto-reconnect loop with 25-minute maxIdleTime cycles). `EmailToWhatsAppPoller` now uses push as the primary trigger with a configurable fallback poll as safety net. Debounce coalesces rapid `exists` events to 1 second.
+- **Verification** - 3 new `watchNewMail` tests (connects+opens+idles, debounced callback, stop logs out), 2 new poller tests (watcher fires processUnread, stop unwatches). All 106 tests pass, typecheck clean.
+
 ## 2026-07-24 - Derive attachment filename from content type when missing
 
 - **Bug** - WhatsApp voice notes arrived in email as `attachment-1.bin` and were unplayable. WhatsApp doesn't set filenames on voice notes (or stickers, some audio messages), so nodemailer got `filename: undefined` and email clients defaulted to `.bin`.

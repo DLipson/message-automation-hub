@@ -33,6 +33,10 @@ class FakeEmailInbox implements EmailInbox, EmailStatusMarker {
   async markFailed(email: InboundEmail): Promise<void> {
     this.failed.push(email);
   }
+
+  async watchNewMail(): Promise<() => Promise<void>> {
+    return async () => {};
+  }
 }
 
 class FakeWhatsAppSender implements WhatsAppSender {

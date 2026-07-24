@@ -50,15 +50,14 @@ const emailAutomationHandlers = pluginContext.require<EmailAutomationHandler[]>(
 );
 
 if (emailAutomationHandlers.length > 0) {
+  const inbox = pluginContext.require<EmailInbox>(capabilities.emailInbox);
   const poller = new EmailToWhatsAppPoller(
-    new ProcessEmailAutomations(
-      pluginContext.require<EmailInbox>(capabilities.emailInbox),
-      emailAutomationHandlers,
-    ),
+    new ProcessEmailAutomations(inbox, emailAutomationHandlers),
+    inbox,
     config.emailToWhatsapp.pollIntervalMs,
   );
 
-  poller.start();
+  await poller.start();
   console.log("Email automation polling is enabled.");
 }
 

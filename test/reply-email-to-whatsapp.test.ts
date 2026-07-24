@@ -25,6 +25,10 @@ class FakeEmailInbox implements EmailInbox {
   async markProcessed(email: InboundEmail): Promise<void> {
     this.processed.push(email);
   }
+
+  async watchNewMail(): Promise<() => Promise<void>> {
+    return async () => {};
+  }
 }
 
 class FakeWhatsApp implements WhatsAppChatSender {

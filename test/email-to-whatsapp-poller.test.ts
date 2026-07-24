@@ -1,6 +1,14 @@
 import { describe, expect, it, vi } from "vitest";
 import { EmailToWhatsAppPoller } from "../src/email-to-whatsapp-poller.js";
 
+function stubInbox() {
+  return {
+    fetchUnread: vi.fn(),
+    markProcessed: vi.fn(),
+    watchNewMail: vi.fn(async () => async () => {}),
+  };
+}
+
 describe("EmailToWhatsAppPoller", () => {
   it("does not start a second poll while the previous poll is still running", async () => {
     vi.useFakeTimers();
@@ -16,9 +24,9 @@ describe("EmailToWhatsAppPoller", () => {
         });
       },
     };
-    const poller = new EmailToWhatsAppPoller(processor, 1000);
+    const poller = new EmailToWhatsAppPoller(processor, stubInbox(), 1000);
 
-    poller.start();
+    await poller.start();
     await vi.advanceTimersByTimeAsync(3000);
 
     expect(processor.calls).toBe(1);
@@ -26,7 +34,7 @@ describe("EmailToWhatsAppPoller", () => {
 
     finishPoll?.();
     await vi.runOnlyPendingTimersAsync();
-    poller.stop();
+    await poller.stop();
     warn.mockRestore();
     vi.useRealTimers();
   });
@@ -38,15 +46,58 @@ describe("EmailToWhatsAppPoller", () => {
         throw new TypeError("send exploded");
       },
     };
-    const poller = new EmailToWhatsAppPoller(processor, 1000);
+    const poller = new EmailToWhatsAppPoller(processor, stubInbox(), 1000);
 
-    poller.start();
+    await poller.start();
     await vi.runOnlyPendingTimersAsync();
-    poller.stop();
+    await poller.stop();
 
     expect(error.mock.calls[0]?.[0]).toContain("TypeError: send exploded");
 
     error.mockRestore();
     vi.useRealTimers();
+  });
+  it("calls processUnread when watcher callback fires", async () => {
+    vi.useFakeTimers();
+    let notify: (() => void) | undefined;
+    const inbox = {
+      fetchUnread: vi.fn(),
+      markProcessed: vi.fn(),
+      watchNewMail: vi.fn((callback: () => void) => {
+        notify = callback;
+        return Promise.resolve(async () => {});
+      }),
+    };
+    const processor = { processUnread: vi.fn(async () => {}) };
+    const poller = new EmailToWhatsAppPoller(processor, inbox, 100000);
+
+    await poller.start();
+
+    // First poll is immediate (delayMs=0)
+    await vi.advanceTimersByTimeAsync(0);
+    expect(processor.processUnread).toHaveBeenCalledTimes(1);
+
+    processor.processUnread.mockClear();
+    notify?.();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(processor.processUnread).toHaveBeenCalledTimes(1);
+
+    await poller.stop();
+    vi.useRealTimers();
+  });
+  it("stop function unwatches the inbox", async () => {
+    const stopWatching = vi.fn(async () => {});
+    const inbox = {
+      fetchUnread: vi.fn(),
+      markProcessed: vi.fn(),
+      watchNewMail: vi.fn(() => Promise.resolve(stopWatching)),
+    };
+    const processor = { processUnread: vi.fn(async () => {}) };
+    const poller = new EmailToWhatsAppPoller(processor, inbox, 100000);
+
+    await poller.start();
+    expect(inbox.watchNewMail).toHaveBeenCalledTimes(1);
+    await poller.stop();
+    expect(stopWatching).toHaveBeenCalledTimes(1);
   });
 });

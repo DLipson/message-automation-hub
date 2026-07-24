@@ -29,6 +29,10 @@ class FakeEmailInbox implements EmailInbox {
     this.processed.push(email);
   }
 
+  async watchNewMail(): Promise<() => Promise<void>> {
+    return async () => {};
+  }
+
   async markSent(email: InboundEmail): Promise<void> {
     this.sent.push(email);
   }

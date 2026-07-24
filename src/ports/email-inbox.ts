@@ -8,6 +8,7 @@ export type EmailInboxBatch = InboundEmail[] | {
 export interface EmailInbox {
   fetchUnread(): Promise<EmailInboxBatch>;
   markProcessed(email: InboundEmail): Promise<void>;
+  watchNewMail(onNewMail: () => void): Promise<() => Promise<void>>;
 }
 
 export interface EmailStatusMarker {

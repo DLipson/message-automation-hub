@@ -81,6 +81,10 @@ class FakeCommandInbox implements EmailInbox, EmailStatusMarker {
   async ensureLabels(labels: string[]): Promise<void> {
     this.labels.push(labels);
   }
+
+  async watchNewMail(): Promise<() => Promise<void>> {
+    return async () => {};
+  }
 }
 
 class FakeThreadStore implements WhatsAppEmailThreadStore {
@@ -176,6 +180,9 @@ const fakeInbox: EmailInbox = {
     return [];
   },
   async markProcessed() {},
+  async watchNewMail() {
+    return async () => {};
+  },
 };
 
 type ConfigOverrides = Omit<Partial<AppConfig>, "emailToWhatsapp" | "transactionCategoryRequest"> & {

@@ -3,21 +3,36 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const imapMock = vi.hoisted(() => {
   const clients: FakeImapFlow[] = [];
 
+  let idleResolve: (() => void) | undefined;
+
   class FakeImapFlow {
     readonly connect = vi.fn(async () => {});
-    readonly logout = vi.fn(async () => {});
+    readonly logout = vi.fn(async () => {
+      idleResolve?.();
+    });
     readonly mailboxOpen = vi.fn(async () => {});
     readonly mailboxCreate = vi.fn(async () => {});
     readonly messageFlagsAdd = vi.fn(async () => {});
     readonly messageFlagsRemove = vi.fn(async () => {});
     readonly on = vi.fn();
+    readonly off = vi.fn();
+    readonly removeAllListeners = vi.fn();
+    readonly idle = vi.fn(() => {
+      return new Promise<void>(resolve => {
+        idleResolve = resolve;
+      });
+    });
 
     constructor() {
       clients.push(this);
     }
   }
 
-  return { clients, FakeImapFlow };
+  function resetIdle(): void {
+    idleResolve = undefined;
+  }
+
+  return { clients, FakeImapFlow, resetIdle };
 });
 
 vi.mock("imapflow", () => ({
@@ -28,9 +43,58 @@ import { ImapEmailInbox } from "../src/adapters/email/imap-email-inbox.js";
 
 beforeEach(() => {
   imapMock.clients.length = 0;
+  imapMock.resetIdle();
 });
 
 describe("ImapEmailInbox", () => {
+  describe("watchNewMail", () => {
+    it("connects, opens INBOX, and starts IDLE", async () => {
+      const inbox = new ImapEmailInbox(config());
+      const callback = vi.fn();
+
+      const stop = await inbox.watchNewMail(callback);
+      const client = imapMock.clients.find(c => c.connect.mock.calls.length > 0);
+      expect(client?.connect).toHaveBeenCalledTimes(1);
+      expect(client?.mailboxOpen).toHaveBeenCalledWith("INBOX");
+      expect(client?.idle).toHaveBeenCalledTimes(1);
+
+      await stop();
+    });
+
+    it("calls callback after exists event debounced", async () => {
+      vi.useFakeTimers();
+      const inbox = new ImapEmailInbox(config());
+      const callback = vi.fn();
+
+      const stop = await inbox.watchNewMail(callback);
+      const client = imapMock.clients.find(c => c.on.mock.calls.length > 0);
+      const existsHandler = client?.on.mock.calls.find(
+        (args: any[]) => args[0] === "exists",
+      )?.[1] as (() => void) | undefined;
+
+      existsHandler?.();
+      existsHandler?.();
+
+      await vi.advanceTimersByTimeAsync(1100);
+
+      expect(callback).toHaveBeenCalledTimes(1);
+
+      await stop();
+      vi.useRealTimers();
+    });
+
+    it("stop function logs out and cleans up", async () => {
+      const inbox = new ImapEmailInbox(config());
+      const callback = vi.fn();
+
+      const stop = await inbox.watchNewMail(callback);
+      await stop();
+
+      const client = imapMock.clients.find(c => c.logout.mock.calls.length > 0);
+      expect(client?.logout).toHaveBeenCalledTimes(1);
+    });
+  });
+
   it("creates Gmail status labels", async () => {
     const inbox = new ImapEmailInbox(config());
 

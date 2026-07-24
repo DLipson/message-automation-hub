@@ -1,6 +1,7 @@
 import { randomBytes } from "node:crypto";
 import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import { dirname } from "node:path";
+import { setTimeout as sleep } from "node:timers/promises";
 import { ImapFlow } from "imapflow";
 import { simpleParser } from "mailparser";
 import type { Attachment } from "mailparser";
@@ -101,6 +102,62 @@ export class ImapEmailInbox implements EmailInbox, EmailStatusMarker {
     await writeFile(tempPath, `${JSON.stringify(checkpoint, null, 2)}\n`, { mode: 0o600 });
     await rename(tempPath, this.config.checkpointPath);
   }
+  async watchNewMail(onNewMail: () => void): Promise<() => Promise<void>> {
+    let stopped = false;
+    let debounceTimer: ReturnType<typeof setTimeout> | undefined;
+    let currentClient: ImapFlow | undefined;
+    let firstConnectResolve: (() => void) | undefined;
+    const firstConnected = new Promise<void>(resolve => { firstConnectResolve = resolve; });
+
+    const scheduleCallback = () => {
+      if (debounceTimer) clearTimeout(debounceTimer);
+      debounceTimer = setTimeout(() => {
+        debounceTimer = undefined;
+        if (!stopped) onNewMail();
+      }, 1000);
+    };
+
+    const run = async () => {
+      while (!stopped) {
+        const client = new ImapFlow({
+          host: this.config.host, port: this.config.port, secure: this.config.secure,
+          auth: { user: this.config.user, pass: this.config.pass },
+          maxIdleTime: 25 * 60 * 1000,
+          logger: false,
+        });
+        currentClient = client;
+        client.on("error", error => console.error(`IMAP watcher error: ${formatError(error)}`));
+        try {
+          await client.connect();
+          await client.mailboxOpen("INBOX");
+          client.on("exists", scheduleCallback);
+          firstConnectResolve?.();
+          firstConnectResolve = undefined;
+          await client.idle();
+        } catch (error) {
+          console.error(`IMAP watcher error: ${formatError(error)}`);
+          firstConnectResolve?.();
+          firstConnectResolve = undefined;
+        }
+        client.off("exists", scheduleCallback);
+        client.removeAllListeners("error");
+        if (!stopped) await sleep(5000);
+      }
+    };
+
+    const loopPromise = run();
+    await firstConnected;
+
+    return async () => {
+      stopped = true;
+      if (debounceTimer) clearTimeout(debounceTimer);
+      if (currentClient) {
+        try { await currentClient.logout(); } catch { /* ignore */ }
+      }
+      await loopPromise;
+    };
+  }
+
   private createClient(): ImapFlow {
     const client = new ImapFlow({ host: this.config.host, port: this.config.port, secure: this.config.secure, auth: { user: this.config.user, pass: this.config.pass }, logger: false });
     client.on("error", error => console.error(`IMAP client error: ${formatError(error)}`)); return client;
