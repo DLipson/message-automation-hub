@@ -2,7 +2,7 @@ import { randomBytes } from "node:crypto";
 import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import { dirname } from "node:path";
 import { setTimeout as sleep } from "node:timers/promises";
-import { ImapFlow } from "imapflow";
+import { AuthenticationFailure, ImapFlow } from "imapflow";
 import { simpleParser } from "mailparser";
 import type { Attachment } from "mailparser";
 import type { InboundEmail } from "../../domain/email.js";
@@ -118,6 +118,7 @@ export class ImapEmailInbox implements EmailInbox, EmailStatusMarker {
     };
 
     const run = async () => {
+      let retryDelay = 5000;
       while (!stopped) {
         const client = new ImapFlow({
           host: this.config.host, port: this.config.port, secure: this.config.secure,
@@ -134,14 +135,23 @@ export class ImapEmailInbox implements EmailInbox, EmailStatusMarker {
           firstConnectResolve?.();
           firstConnectResolve = undefined;
           await client.idle();
+          retryDelay = 5000;
         } catch (error) {
           console.error(`IMAP watcher error: ${formatError(error)}`);
           firstConnectResolve?.();
           firstConnectResolve = undefined;
+          if (error instanceof AuthenticationFailure) {
+            console.error(`IMAP watcher: authentication failed (${error.message}). Giving up. Fallback poll will continue.`);
+            stopped = true;
+            break;
+          }
         }
         client.off("exists", scheduleCallback);
         client.removeAllListeners("error");
-        if (!stopped) await sleep(5000);
+        if (!stopped) {
+          await sleep(retryDelay);
+          retryDelay = Math.min(retryDelay * 2, 300_000);
+        }
       }
     };
 
