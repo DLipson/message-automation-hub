@@ -7,3 +7,4 @@ coverage/
 vm-scripts/
 gh-deploy-job-*.zip
 /CONTEXT.md
+session-ses_*.md
