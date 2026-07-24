@@ -60,3 +60,10 @@
 - **Root Cause** - `rawMessage.downloadMedia()` from whatsapp-web.js v1.34.7 passes `msg.type` (`'ptt'`) to `downloadAndMaybeDecrypt`, which expects a media type (`'audio'`, `'image'`, etc.). The `downloadAndMaybeDecrypt` call throws for `'ptt'`, and the error propagates out of `page.evaluate()` as an uncatchable puppeteer error.
 - **Fix** - Replaced the single `downloadMedia()` call with a two-step fallback: first try the library's `downloadMedia()`, and if it fails, retry via a direct `page.evaluate()` that maps `msg.type === 'ptt'` to `'audio'` for the download manager. If both fail, the message is processed without attachments (instead of crashing).
 - **Verification** - All 92 tests pass. New regression test for media download failure.
+
+## 2026-07-24 - Fix message ID extraction and add pre-processing log
+
+- **Bug** - Media download failure logs and error notification emails showed `undefined` for message ID because `rawMessage.id._serialized` was missing on some messages (LID format). The notification email had no sender display name, no message type, and no body content for media-only messages. There was no "message received" log before the download attempt, making it hard to trace what happened.
+- **Root Cause** - `tryDownloadMedia` and `attachmentsFor` accessed `rawMessage.id._serialized` without fallback. The whatsapp-web.js `id` object can lack `_serialized` on certain message formats. Neither sender label (display name), message type, nor a pre-download log line were included.
+- **Fix** - Added `messageIdFor()` helper that tries `_serialized`, then inner `id`, then `JSON.stringify`, then `"unknown"`. Added `senderLabelFor()` that includes `notifyName` when available. Added `notificationTextFor()` to consistently format notification bodies with ID, sender, type, body, and time. Logged "Received message from X" before any processing starts. Applied safe ID extraction everywhere in the message handler path.
+- **Verification** - 2 new tests: "logs received message before processing" and "handles missing _serialized on message id" (asserts no `undefined` in logs). All 98 tests pass, typecheck clean.

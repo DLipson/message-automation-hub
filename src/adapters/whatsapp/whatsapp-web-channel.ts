@@ -164,6 +164,11 @@ export class WhatsAppWebChannel implements InboundChannel, WhatsAppSender, Whats
         return;
       }
 
+      const msgId = messageIdFor(rawMessage);
+      const sender = senderLabelFor(rawMessage);
+      const msgType = rawMessage.type ? ` type: ${rawMessage.type}` : "";
+      logWhatsApp(`Received message ${msgId} from ${sender}${msgType}`);
+
       try {
         if (!this.shouldHandle(rawMessage)) {
           return;
@@ -171,22 +176,11 @@ export class WhatsAppWebChannel implements InboundChannel, WhatsAppSender, Whats
 
         await this.handler(await this.toInboundMessage(rawMessage));
       } catch (error) {
-        const msgId = rawMessage.id?._serialized ?? "unknown";
         const errorText = formatEventValue(error);
         logWhatsApp(`Message handler failed for message ${msgId}: ${errorText}`);
         await this.notifyError(
           `WhatsApp message handler failed: ${msgId}`,
-          [
-            "Message Automation Hub encountered an error processing a WhatsApp message.",
-            "",
-            `Message ID: ${msgId}`,
-            `From: ${rawMessage.from}`,
-            `Body: ${rawMessage.body}`,
-            `Time: ${new Date(rawMessage.timestamp * 1000).toISOString()}`,
-            "",
-            "Error:",
-            errorText,
-          ].join("\n"),
+          notificationTextFor(rawMessage, msgId, sender, ["Error:", errorText]),
         );
       }
     });
@@ -371,7 +365,10 @@ export class WhatsAppWebChannel implements InboundChannel, WhatsAppSender, Whats
       : { id: rawMessage.from };
     const attachments = await this.attachmentsFor(rawMessage);
 
-    const messageId = rawMessage.id?._serialized ?? `unknown-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+    const serializedId = rawMessage.id && typeof rawMessage.id === "object" && "_serialized" in rawMessage.id
+      ? (rawMessage.id as { _serialized?: string })._serialized
+      : undefined;
+    const messageId = serializedId ?? `unknown-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 
     return {
       id: messageId,
@@ -393,20 +390,16 @@ export class WhatsAppWebChannel implements InboundChannel, WhatsAppSender, Whats
     const media = await this.tryDownloadMedia(rawMessage);
 
     if (!media) {
-      const msgId = rawMessage.id._serialized;
-      logWhatsApp(`Media unavailable for message ${msgId}, forwarding without attachments`);
+      const msgId = messageIdFor(rawMessage);
+      const sender = senderLabelFor(rawMessage);
+      logWhatsApp(`Media unavailable for message ${msgId} from ${sender}, forwarding without attachments`);
       await this.notifyError(
         `WhatsApp media download failed: ${msgId}`,
-        [
+        notificationTextFor(rawMessage, msgId, sender, [
           "Message Automation Hub could not download media from a WhatsApp message.",
           "",
-          `Message ID: ${msgId}`,
-          `From: ${rawMessage.from}`,
-          `Body: ${rawMessage.body}`,
-          `Time: ${new Date(rawMessage.timestamp * 1000).toISOString()}`,
-          "",
           "The message was forwarded without attachments.",
-        ].join("\n"),
+        ]),
       );
       return [];
     }
@@ -421,7 +414,7 @@ export class WhatsAppWebChannel implements InboundChannel, WhatsAppSender, Whats
   private async tryDownloadMedia(
     rawMessage: RawWhatsAppMessage,
   ): Promise<RawWhatsAppMedia | undefined> {
-    const msgId = rawMessage.id._serialized;
+    const msgId = messageIdFor(rawMessage);
     const msgFrom = rawMessage.from;
 
     try {
@@ -551,6 +544,46 @@ function browserArgs(): string[] {
     "--disable-sync",
     "--no-first-run",
   ];
+}
+
+function messageIdFor(message: RawWhatsAppMessage): string {
+  const id = message.id;
+  if (id && typeof id === "object") {
+    if ("_serialized" in id) {
+      const serialized = (id as { _serialized?: string })._serialized;
+      if (serialized) return serialized;
+    }
+    if ("id" in id) {
+      const innerId = (id as { id?: string }).id;
+      if (innerId) return innerId;
+    }
+  }
+  if (id && typeof id === "string") return id;
+  try { return JSON.stringify(id); } catch { return "unknown"; }
+}
+
+function senderLabelFor(message: RawWhatsAppMessage): string {
+  const displayName = message._data?.notifyName;
+  return displayName ? `${displayName} (${message.from})` : message.from;
+}
+
+function notificationTextFor(
+  message: RawWhatsAppMessage,
+  msgId: string,
+  sender: string,
+  extra: string[],
+): string {
+  const type = message.type ?? "unknown";
+  const body = message.body || "(no text)";
+  return [
+    ...extra,
+    "",
+    `Message ID: ${msgId}`,
+    `Sender: ${sender}`,
+    `Type: ${type}`,
+    `Body: ${body}`,
+    `Time: ${new Date(message.timestamp * 1000).toISOString()}`,
+  ].join("\n");
 }
 
 function logWhatsApp(message: string): void {

@@ -132,7 +132,7 @@ describe("WhatsAppWebChannel", () => {
     expect(log.mock.calls.flat().join("\n")).toContain("media download failed for message message-1");
   });
 
-  it("logs message context when media download fails", async () => {
+  it("logs context when media download fails", async () => {
     const log = vi.spyOn(console, "log").mockImplementation(() => {});
     const channel = new WhatsAppWebChannel({ phoneNumber: "12025550108" });
     channel.onMessage(async () => {});
@@ -151,6 +151,42 @@ describe("WhatsAppWebChannel", () => {
     expect(logs).toContain("message-1");
     expect(logs).toContain("12025550108@c.us");
     expect(logs).toContain("Puppeteer evaluation failed");
+  });
+
+  it("logs received message before processing", async () => {
+    const log = vi.spyOn(console, "log").mockImplementation(() => {});
+    const channel = new WhatsAppWebChannel({ phoneNumber: "12025550108" });
+    channel.onMessage(async () => {});
+
+    await channel.start();
+    await emitMessage({
+      from: "441234567890@c.us",
+      body: "hello",
+    });
+
+    expect(log.mock.calls.flat().join("\n")).toMatch(
+      /Received message message-1 from 441234567890@c\.us/,
+    );
+  });
+
+  it("handles missing _serialized on message id", async () => {
+    const log = vi.spyOn(console, "log").mockImplementation(() => {});
+    const channel = new WhatsAppWebChannel({ phoneNumber: "12025550108" });
+    channel.onMessage(async () => {});
+
+    await channel.start();
+    await emitMessage({
+      id: {},
+      from: "441234567890@c.us",
+      body: "test",
+      hasMedia: true,
+      downloadMedia: async () => {
+        throw new Error("Puppeteer evaluation failed");
+      },
+    });
+
+    const logs = log.mock.calls.flat().join("\n");
+    expect(logs).not.toContain("undefined");
   });
 
   it("sends error notification email when message handler crashes", async () => {
@@ -318,6 +354,7 @@ async function emitMessage(overrides: {
   author?: string;
   body: string;
   hasMedia?: boolean;
+  id?: Record<string, unknown>;
   downloadMedia?: () => Promise<{
     mimetype: string;
     data: string;
@@ -325,7 +362,7 @@ async function emitMessage(overrides: {
   } | undefined>;
 }): Promise<void> {
   await whatsappMock.clients[0]?.handlers.get("message")?.({
-    id: { _serialized: "message-1" },
+    id: overrides.id ?? { _serialized: "message-1" },
     timestamp: 1,
     ...overrides,
   });
