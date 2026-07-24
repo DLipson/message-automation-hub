@@ -23,3 +23,9 @@ When reasoning about a library's API or a file's current contents, re-read the f
 
 ## Test doubles
 Fakes for `EmailInbox` (and other ports) belong in one shared `test/fakes/` module, not redefined per test file.
+
+## Commit conventions
+Use Conventional Commits (`feat:`, `fix:`, `docs:`, `chore:`, `test:`, `refactor:`).
+Keep messages imperative present tense, capitalized after the prefix.
+
+Example: `feat: Add IMAP IDLE push notifications to EmailInbox port`
