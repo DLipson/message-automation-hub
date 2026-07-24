@@ -51,7 +51,7 @@ type RawWhatsAppMedia = {
 };
 
 type RawWhatsAppMessage = {
-  id: { _serialized: string };
+  id: { _serialized: string; "$1"?: string };
   from: string;
   author?: string;
   body: string;
@@ -61,6 +61,24 @@ type RawWhatsAppMessage = {
   downloadMedia?: () => Promise<RawWhatsAppMedia | undefined>;
   _data?: { notifyName?: string };
 };
+
+function normalizeId(message: RawWhatsAppMessage): void {
+  const id = message.id;
+  if (
+    id &&
+    typeof id === "object" &&
+    "_serialized" in id &&
+    id._serialized
+  ) {
+    return;
+  }
+  if (id && typeof id === "object" && "$1" in id) {
+    const dollarId = id as { "$1": string };
+    if (dollarId.$1) {
+      (id as { _serialized: string })._serialized = dollarId.$1;
+    }
+  }
+}
 
 export class WhatsAppWebChannel implements InboundChannel, WhatsAppSender, WhatsAppChatSender {
   private readonly client: InstanceType<typeof Client>;
@@ -160,6 +178,7 @@ export class WhatsAppWebChannel implements InboundChannel, WhatsAppSender, Whats
     });
 
     this.client.on("message", async rawMessage => {
+      normalizeId(rawMessage);
       if (!this.handler) {
         return;
       }

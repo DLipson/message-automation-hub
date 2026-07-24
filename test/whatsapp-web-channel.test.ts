@@ -169,6 +169,22 @@ describe("WhatsAppWebChannel", () => {
     );
   });
 
+  it("normalizes $1 to _serialized on message id", async () => {
+    const log = vi.spyOn(console, "log").mockImplementation(() => {});
+    const channel = new WhatsAppWebChannel({ phoneNumber: "12025550108" });
+    channel.onMessage(async () => {});
+
+    await channel.start();
+    await emitMessage({
+      id: { '$1': "true_12025550108@c.us_XYZ789" },
+      from: "12025550108@c.us",
+      body: "hello",
+    });
+
+    const logs = log.mock.calls.flat().join("\n");
+    expect(logs).toContain("true_12025550108@c.us_XYZ789");
+  });
+
   it("handles missing _serialized on message id", async () => {
     const log = vi.spyOn(console, "log").mockImplementation(() => {});
     const channel = new WhatsAppWebChannel({ phoneNumber: "12025550108" });
