@@ -5,33 +5,8 @@ import type {
   EmailAutomationBatch,
   EmailAutomationHandler,
 } from "../src/use-cases/process-email-automations.js";
+import { FakeEmailInbox } from "./fakes/fake-email-inbox.js";
 import { ProcessEmailAutomations } from "../src/use-cases/process-email-automations.js";
-
-class FakeEmailInbox implements EmailInbox, EmailStatusMarker {
-  readonly processed: InboundEmail[] = [];
-  readonly failed: InboundEmail[] = [];
-
-  constructor(private readonly emails: InboundEmail[]) {}
-
-  async fetchUnread(): Promise<InboundEmail[]> {
-    return this.emails;
-  }
-
-  async markProcessed(email: InboundEmail): Promise<void> {
-    this.processed.push(email);
-  }
-
-  async markSent(): Promise<void> {}
-  async markDelivered(): Promise<void> {}
-
-  async markFailed(email: InboundEmail): Promise<void> {
-    this.failed.push(email);
-  }
-
-  async watchNewMail(): Promise<() => Promise<void>> {
-    return async () => {};
-  }
-}
 
 class RecordingHandler implements EmailAutomationHandler {
   readonly received: InboundEmail[] = [];

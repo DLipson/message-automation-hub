@@ -10,41 +10,9 @@ import type {
   WhatsAppDirectMessage,
   WhatsAppSender,
 } from "../src/ports/whatsapp-sender.js";
+import { FakeEmailInbox } from "./fakes/fake-email-inbox.js";
 import { ProcessEmailAutomations } from "../src/use-cases/process-email-automations.js";
 import { ForwardEmailToWhatsApp } from "../src/use-cases/forward-email-to-whatsapp.js";
-
-class FakeEmailInbox implements EmailInbox {
-  readonly processed: InboundEmail[] = [];
-  readonly sent: InboundEmail[] = [];
-  readonly delivered: InboundEmail[] = [];
-  readonly failed: InboundEmail[] = [];
-
-  constructor(private readonly emails: InboundEmail[]) {}
-
-  async fetchUnread(): Promise<InboundEmail[]> {
-    return this.emails;
-  }
-
-  async markProcessed(email: InboundEmail): Promise<void> {
-    this.processed.push(email);
-  }
-
-  async watchNewMail(): Promise<() => Promise<void>> {
-    return async () => {};
-  }
-
-  async markSent(email: InboundEmail): Promise<void> {
-    this.sent.push(email);
-  }
-
-  async markDelivered(email: InboundEmail): Promise<void> {
-    this.delivered.push(email);
-  }
-
-  async markFailed(email: InboundEmail): Promise<void> {
-    this.failed.push(email);
-  }
-}
 
 class FakeEmailSender implements EmailSender {
   readonly sent: EmailMessage[] = [];

@@ -14,6 +14,7 @@ import type {
   WhatsAppDirectMessage,
   WhatsAppSender,
 } from "../src/ports/whatsapp-sender.js";
+import { FakeEmailInbox } from "./fakes/fake-email-inbox.js";
 import { createPluginContext, registerPlugins } from "../src/core/plugin-runtime.js";
 import { capabilities } from "../src/plugins/capabilities.js";
 import { createEmailCommandToWhatsAppPlugin } from "../src/plugins/workflows/email-command-to-whatsapp.js";
@@ -66,24 +67,11 @@ class FakeWhatsAppSender implements WhatsAppSender {
   }
 }
 
-class FakeCommandInbox implements EmailInbox, EmailStatusMarker {
+class FakeCommandInbox extends FakeEmailInbox {
   readonly labels: string[][] = [];
-
-  async fetchUnread(): Promise<InboundEmail[]> {
-    return [];
-  }
-
-  async markProcessed(): Promise<void> {}
-  async markSent(): Promise<void> {}
-  async markDelivered(): Promise<void> {}
-  async markFailed(): Promise<void> {}
 
   async ensureLabels(labels: string[]): Promise<void> {
     this.labels.push(labels);
-  }
-
-  async watchNewMail(): Promise<() => Promise<void>> {
-    return async () => {};
   }
 }
 

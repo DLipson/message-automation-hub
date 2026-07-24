@@ -8,28 +8,13 @@ import type {
   WhatsAppChatMessage,
   WhatsAppChatSender,
 } from "../src/ports/whatsapp-sender.js";
+import { FakeEmailInbox } from "./fakes/fake-email-inbox.js";
 import { ReplyEmailToWhatsApp } from "../src/use-cases/reply-email-to-whatsapp.js";
 import {
   replyMarker,
   type WhatsAppEmailThread,
   type WhatsAppEmailThreadStore,
 } from "../src/use-cases/whatsapp-email-thread-store.js";
-
-class FakeEmailInbox implements EmailInbox {
-  readonly processed: InboundEmail[] = [];
-
-  async fetchUnread(): Promise<InboundEmail[]> {
-    return [];
-  }
-
-  async markProcessed(email: InboundEmail): Promise<void> {
-    this.processed.push(email);
-  }
-
-  async watchNewMail(): Promise<() => Promise<void>> {
-    return async () => {};
-  }
-}
 
 class FakeWhatsApp implements WhatsAppChatSender {
   readonly sent: WhatsAppChatMessage[] = [];
