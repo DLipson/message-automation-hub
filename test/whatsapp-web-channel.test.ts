@@ -107,6 +107,33 @@ describe("WhatsAppWebChannel", () => {
     })]);
   });
 
+  it("derives filename from mimetype when media has no filename", async () => {
+    const received: unknown[] = [];
+    const channel = new WhatsAppWebChannel({ phoneNumber: "12025550108" });
+    channel.onMessage(async message => {
+      received.push(message);
+    });
+
+    await channel.start();
+    await emitMessage({
+      from: "12025550108@c.us",
+      body: "voice note",
+      hasMedia: true,
+      downloadMedia: async () => ({
+        mimetype: "audio/ogg; codecs=opus",
+        data: Buffer.from("audio").toString("base64"),
+      }),
+    });
+
+    expect(received).toEqual([expect.objectContaining({
+      attachments: [{
+        content: Buffer.from("audio"),
+        contentType: "audio/ogg; codecs=opus",
+        filename: "audio.ogg",
+      }],
+    })]);
+  });
+
   it("handles media download failure gracefully", async () => {
     const log = vi.spyOn(console, "log").mockImplementation(() => {});
     const received: unknown[] = [];

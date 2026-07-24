@@ -1,5 +1,11 @@
 # Logs
 
+## 2026-07-24 - Derive attachment filename from content type when missing
+
+- **Bug** - WhatsApp voice notes arrived in email as `attachment-1.bin` and were unplayable. WhatsApp doesn't set filenames on voice notes (or stickers, some audio messages), so nodemailer got `filename: undefined` and email clients defaulted to `.bin`.
+- **Fix** - Added `filenameFor()` helper that generates a filename from the mime type when WhatsApp provides none (e.g. `audio/ogg; codecs=opus` → `audio.ogg`).
+- **Verification** - 1 new test: "derives filename from mimetype when media has no filename". All 101 tests pass, typecheck clean.
+
 ## 2026-07-22 - Reply email failure notification
 
 - **Change** - `ReplyEmailToWhatsApp` now sends an email notification when forwarding a reply to WhatsApp fails. Added `failureNotification` config option with `sender`, `from`, `to`. Wired via `whatsapp-email-bridge.ts`.
@@ -74,3 +80,10 @@
 - **Root Cause** - LID messages (`...@lid`) have an `id` object with `id` (short ID) and `fromMe` fields but missing `_serialized`. The serialized ID format is `{fromMe}_{remote}_{id}` (e.g. `false_126327990546436@lid_3EB0A1B2C3D4E5F6`).
 - **Fix** - `messageIdFor()` now reconstructs the serialized ID from `id.id`, `fromMe`, and `message.from` when `_serialized` is missing. `tryDownloadMedia` skips the library's `downloadMedia()` when `_serialized` is absent (it would fail anyway) and goes straight to the page-level download with the reconstructed ID.
 - **Verification** - 1 new test: "reconstructs message id from id.id and from when _serialized is missing". All 99 tests pass, typecheck clean.
+
+## 2026-07-24 - Normalize renamed WhatsApp Web id._serialized to id.$1
+
+- **Bug** - Media downloads and other operations failed with cryptic `r: r` error. The real error was `DataError: Failed to execute 'get' on 'IDBObjectStore': No key or key range specified.` caused by `Msg.get(undefined)`.
+- **Root Cause** - WhatsApp Web renamed `id._serialized` to `id.$1` in their July 2026 update. Any code reading `id._serialized` received `undefined`, breaking all downstream operations that try to look up messages by serialized ID.
+- **Fix** - Added `normalizeId()` helper that copies `$1` to `_serialized` when the latter is absent. Called at the message handler entry point, so `_serialized` is populated before our logging, media download, or the library's internal `downloadMedia()` accesses it.
+- **Verification** - 1 new test: "normalizes $1 to _serialized on message id". All 100 tests pass, typecheck clean.

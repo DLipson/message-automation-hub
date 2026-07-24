@@ -423,10 +423,11 @@ export class WhatsAppWebChannel implements InboundChannel, WhatsAppSender, Whats
       return [];
     }
 
+    const filename = media.filename ?? filenameFor(media.mimetype);
     return [{
       content: Buffer.from(media.data, "base64"),
       contentType: media.mimetype,
-      ...(media.filename ? { filename: media.filename } : {}),
+      ...(filename ? { filename } : {}),
     }];
   }
 
@@ -615,6 +616,17 @@ function notificationTextFor(
     `Body: ${body}`,
     `Time: ${new Date(message.timestamp * 1000).toISOString()}`,
   ].join("\n");
+}
+
+function filenameFor(mimetype: string): string | undefined {
+  const base = mimetype.split(";")[0];
+  if (!base) return undefined;
+  const clean = base.trim().toLowerCase();
+  const slashIdx = clean.indexOf("/");
+  if (slashIdx === -1) return undefined;
+  const ext = clean.slice(slashIdx + 1);
+  if (!ext || ext.includes(" ")) return undefined;
+  return `${clean.slice(0, slashIdx)}.${ext}`;
 }
 
 function logWhatsApp(message: string): void {
