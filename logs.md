@@ -67,3 +67,10 @@
 - **Root Cause** - `tryDownloadMedia` and `attachmentsFor` accessed `rawMessage.id._serialized` without fallback. The whatsapp-web.js `id` object can lack `_serialized` on certain message formats. Neither sender label (display name), message type, nor a pre-download log line were included.
 - **Fix** - Added `messageIdFor()` helper that tries `_serialized`, then inner `id`, then `JSON.stringify`, then `"unknown"`. Added `senderLabelFor()` that includes `notifyName` when available. Added `notificationTextFor()` to consistently format notification bodies with ID, sender, type, body, and time. Logged "Received message from X" before any processing starts. Applied safe ID extraction everywhere in the message handler path.
 - **Verification** - 2 new tests: "logs received message before processing" and "handles missing _serialized on message id" (asserts no `undefined` in logs). All 98 tests pass, typecheck clean.
+
+## 2026-07-24 - Reconstruct serialized message ID for LID messages
+
+- **Bug** - Media downloads always failed on LID-formatted WhatsApp messages because `rawMessage.id._serialized` was missing. The library's `downloadMedia()` passed `undefined` to Puppeteer evaluate, causing the cryptic `r: r` error. The `downloadMediaViaPage()` fallback also failed because it got an invalid message ID.
+- **Root Cause** - LID messages (`...@lid`) have an `id` object with `id` (short ID) and `fromMe` fields but missing `_serialized`. The serialized ID format is `{fromMe}_{remote}_{id}` (e.g. `false_126327990546436@lid_3EB0A1B2C3D4E5F6`).
+- **Fix** - `messageIdFor()` now reconstructs the serialized ID from `id.id`, `fromMe`, and `message.from` when `_serialized` is missing. `tryDownloadMedia` skips the library's `downloadMedia()` when `_serialized` is absent (it would fail anyway) and goes straight to the page-level download with the reconstructed ID.
+- **Verification** - 1 new test: "reconstructs message id from id.id and from when _serialized is missing". All 99 tests pass, typecheck clean.

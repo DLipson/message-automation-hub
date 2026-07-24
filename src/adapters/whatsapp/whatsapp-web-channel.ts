@@ -416,13 +416,21 @@ export class WhatsAppWebChannel implements InboundChannel, WhatsAppSender, Whats
   ): Promise<RawWhatsAppMedia | undefined> {
     const msgId = messageIdFor(rawMessage);
     const msgFrom = rawMessage.from;
+    const hasSerialized = rawMessage.id && typeof rawMessage.id === "object" && "_serialized" in rawMessage.id
+      && !!(rawMessage.id as { _serialized?: string })._serialized;
 
-    try {
-      const media = await rawMessage.downloadMedia!();
-      if (media) return media;
-    } catch (error) {
+    if (hasSerialized) {
+      try {
+        const media = await rawMessage.downloadMedia!();
+        if (media) return media;
+      } catch (error) {
+        logWhatsApp(
+          `media download failed for message ${msgId} from ${msgFrom}, trying direct download: ${formatEventValue(error)}`,
+        );
+      }
+    } else {
       logWhatsApp(
-        `media download failed for message ${msgId} from ${msgFrom}, trying direct download: ${formatEventValue(error)}`,
+        `media download skipped library call for ${msgId}: missing _serialized, using direct download`,
       );
     }
 
@@ -553,10 +561,14 @@ function messageIdFor(message: RawWhatsAppMessage): string {
       const serialized = (id as { _serialized?: string })._serialized;
       if (serialized) return serialized;
     }
-    if ("id" in id) {
-      const innerId = (id as { id?: string }).id;
-      if (innerId) return innerId;
+
+    const idObj = id as { id?: string; fromMe?: boolean };
+    if (idObj.id && message.from) {
+      const prefix = idObj.fromMe === true ? "true" : "false";
+      return `${prefix}_${message.from}_${idObj.id}`;
     }
+
+    if (idObj.id) return idObj.id;
   }
   if (id && typeof id === "string") return id;
   try { return JSON.stringify(id); } catch { return "unknown"; }

@@ -189,6 +189,27 @@ describe("WhatsAppWebChannel", () => {
     expect(logs).not.toContain("undefined");
   });
 
+  it("reconstructs message id from id.id and from when _serialized is missing", async () => {
+    const log = vi.spyOn(console, "log").mockImplementation(() => {});
+    const channel = new WhatsAppWebChannel({ phoneNumber: "12025550108" });
+    channel.onMessage(async () => {});
+
+    await channel.start();
+    await emitMessage({
+      id: { fromMe: false, id: "3EB0A1B2C3D4E5F6" },
+      from: "126327990546436@lid",
+      body: "photo",
+      hasMedia: true,
+      downloadMedia: async () => {
+        throw new Error("Puppeteer evaluation failed");
+      },
+    });
+
+    const logs = log.mock.calls.flat().join("\n");
+    expect(logs).toContain("false_126327990546436@lid_3EB0A1B2C3D4E5F6");
+    expect(logs).toContain("missing _serialized, using direct download");
+  });
+
   it("sends error notification email when message handler crashes", async () => {
     const log = vi.spyOn(console, "log").mockImplementation(() => {});
     const notifier = new FakeEmailSender();
