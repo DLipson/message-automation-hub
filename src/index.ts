@@ -13,10 +13,7 @@ import {
 import { createEmailCommandToWhatsAppPlugin } from "./plugins/workflows/email-command-to-whatsapp.js";
 import { createTransactionCategoryRequestPlugin } from "./plugins/workflows/transaction-category-request.js";
 import { createWhatsAppEmailBridgePlugin } from "./plugins/workflows/whatsapp-email-bridge.js";
-import type { EmailInbox } from "./ports/email-inbox.js";
-import type { InboundChannel } from "./ports/inbound-channel.js";
 import type { WhatsAppPairing } from "./ports/whatsapp-sender.js";
-import type { EmailAutomationHandler } from "./use-cases/process-email-automations.js";
 import { ProcessEmailAutomations } from "./use-cases/process-email-automations.js";
 
 loadRuntimeEnv();
@@ -38,23 +35,23 @@ const pluginContext = await registerPlugins([
     ? [createTransactionCategoryRequestPlugin(config)]
     : []),
 ]);
-const whatsapp = pluginContext.require<InboundChannel>(
+const whatsapp = pluginContext.require(
   capabilities.whatsappInbound,
 );
 
 const whatsappStart = whatsapp.start();
 startControlServer(
-  pluginContext.require<WhatsAppPairing>(capabilities.whatsappPairing),
+  pluginContext.require(capabilities.whatsappPairing),
   process.env,
 );
 await whatsappStart;
 
-const emailAutomationHandlers = pluginContext.require<EmailAutomationHandler[]>(
+const emailAutomationHandlers = pluginContext.require(
   capabilities.emailAutomationHandlers,
 );
 
 if (emailAutomationHandlers.length > 0) {
-  const inbox = pluginContext.require<EmailInbox>(capabilities.emailInbox);
+  const inbox = pluginContext.require(capabilities.emailInbox);
   const poller = new EmailToWhatsAppPoller(
     new ProcessEmailAutomations(inbox, emailAutomationHandlers),
     inbox,

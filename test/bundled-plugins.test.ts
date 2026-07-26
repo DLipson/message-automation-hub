@@ -1,8 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { AppConfig } from "../src/config.js";
-import type { InboundEmail } from "../src/domain/email.js";
 import type { ContactRef, InboundMessage } from "../src/domain/message.js";
-import type { EmailInbox, EmailStatusMarker } from "../src/ports/email-inbox.js";
+import type { EmailInbox } from "../src/ports/email-inbox.js";
 import type { EmailMessage, EmailSender } from "../src/ports/email-sender.js";
 import type { InboundChannel, InboundMessageHandler } from "../src/ports/inbound-channel.js";
 import type { AppLogger } from "../src/ports/app-logger.js";

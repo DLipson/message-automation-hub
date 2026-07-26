@@ -1,7 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { InboundEmail } from "../src/domain/email.js";
 import type { MediaAttachment } from "../src/domain/media.js";
-import type { EmailInbox, EmailStatusMarker } from "../src/ports/email-inbox.js";
 import type {
   SentMessage,
   WhatsAppDirectImage,

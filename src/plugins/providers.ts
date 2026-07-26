@@ -8,8 +8,6 @@ import {
 } from "../adapters/email/json-whatsapp-email-thread-store.js";
 import { SmtpEmailSender } from "../adapters/email/smtp-email-sender.js";
 import type { AppLogger } from "../ports/app-logger.js";
-import type { EmailSender } from "../ports/email-sender.js";
-import type { EmailAutomationHandler } from "../use-cases/process-email-automations.js";
 import { WhatsAppWebChannel } from "../adapters/whatsapp/whatsapp-web-channel.js";
 import { capabilities } from "./capabilities.js";
 import { dirname, join } from "node:path";
@@ -39,7 +37,7 @@ export function createEmailPlugin(config: AppConfig, env: NodeJS.ProcessEnv = pr
       ctx.provide(capabilities.emailInbox, inbox);
       ctx.provide(capabilities.emailStatusMarker, inbox);
       ctx.provide(capabilities.emailLabeler, inbox);
-      ctx.provide<EmailAutomationHandler[]>(
+      ctx.provide(
         capabilities.emailAutomationHandlers,
         [],
       );
@@ -67,7 +65,7 @@ export function createWhatsAppWebPlugin(config: AppConfig): HubPlugin {
     id: "whatsapp-web",
     register(ctx) {
       const emailSender = ctx.has(capabilities.emailSender)
-        ? ctx.require<EmailSender>(capabilities.emailSender)
+        ? ctx.require(capabilities.emailSender)
         : undefined;
 
       const whatsapp = new WhatsAppWebChannel({

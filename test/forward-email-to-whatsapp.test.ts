@@ -2,7 +2,6 @@ import { describe, expect, it } from "vitest";
 import type { InboundEmail } from "../src/domain/email.js";
 import type { MediaAttachment } from "../src/domain/media.js";
 import type { AppLogger } from "../src/ports/app-logger.js";
-import type { EmailInbox } from "../src/ports/email-inbox.js";
 import type { EmailMessage, EmailSender } from "../src/ports/email-sender.js";
 import type {
   SentMessage,
