@@ -43,7 +43,8 @@ type EmailCommand = {
 
 export class ForwardEmailToWhatsApp implements EmailAutomationHandler {
   constructor(
-    private readonly inbox: EmailInbox & EmailStatusMarker,
+    private readonly inbox: EmailInbox,
+    private readonly status: EmailStatusMarker,
     private readonly whatsapp: WhatsAppSender,
     private readonly options: ForwardEmailToWhatsAppOptions,
     private readonly logger: AppLogger = silentLogger,
@@ -80,11 +81,11 @@ export class ForwardEmailToWhatsApp implements EmailAutomationHandler {
 
       sentMsg.delivery.then(async status => {
         if (status === "delivered") {
-          await this.inbox.markDelivered(email);
+          await this.status.markDelivered(email);
         } else if (status === "sent") {
-          await this.inbox.markSent(email);
+          await this.status.markSent(email);
         } else {
-          await this.inbox.markFailed(email);
+          await this.status.markFailed(email);
         }
       }).catch(() => {});
 
@@ -148,7 +149,7 @@ export class ForwardEmailToWhatsApp implements EmailAutomationHandler {
     command: EmailCommand,
     error: unknown,
   ): Promise<void> {
-    await this.inbox.markFailed(email);
+    await this.status.markFailed(email);
 
     try {
       await this.notifySendFailure(email, command, error);

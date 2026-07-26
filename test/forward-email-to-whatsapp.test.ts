@@ -54,7 +54,7 @@ describe("ForwardEmailToWhatsApp", () => {
     const inbox = new FakeEmailInbox([email]);
     const whatsapp = new FakeWhatsAppSender();
     const logger = new FakeLogger();
-    const forwarder = new ForwardEmailToWhatsApp(inbox, whatsapp, {
+    const forwarder = new ForwardEmailToWhatsApp(inbox, inbox, whatsapp, {
       subjectPrefix: "WA:",
     }, logger);
 
@@ -88,7 +88,7 @@ describe("ForwardEmailToWhatsApp", () => {
     });
     const inbox = new FakeEmailInbox([email]);
     const whatsapp = new FakeWhatsAppSender();
-    const forwarder = new ForwardEmailToWhatsApp(inbox, whatsapp, {
+    const forwarder = new ForwardEmailToWhatsApp(inbox, inbox, whatsapp, {
       subjectPrefix: "WA:",
     });
 
@@ -118,7 +118,7 @@ describe("ForwardEmailToWhatsApp", () => {
     const whatsapp = new FakeWhatsAppSender();
     const notificationSender = new FakeEmailSender();
     const logger = new FakeLogger();
-    const forwarder = new ForwardEmailToWhatsApp(inbox, whatsapp, {
+    const forwarder = new ForwardEmailToWhatsApp(inbox, inbox, whatsapp, {
       subjectPrefix: "WA:",
       extraImageNotification: {
         sender: notificationSender,
@@ -170,7 +170,7 @@ describe("ForwardEmailToWhatsApp", () => {
         throw new Error("smtp unavailable");
       },
     };
-    const forwarder = new ForwardEmailToWhatsApp(inbox, whatsapp, {
+    const forwarder = new ForwardEmailToWhatsApp(inbox, inbox, whatsapp, {
       subjectPrefix: "WA:",
       extraImageNotification: {
         sender: failingNotifier,
@@ -203,7 +203,7 @@ describe("ForwardEmailToWhatsApp", () => {
     const waits: number[] = [];
     const inbox = new FakeEmailInbox([firstEmail, secondEmail]);
     const whatsapp = new FakeWhatsAppSender();
-    const forwarder = new ForwardEmailToWhatsApp(inbox, whatsapp, {
+    const forwarder = new ForwardEmailToWhatsApp(inbox, inbox, whatsapp, {
       subjectPrefix: "WA:",
       imageDelayMs: () => 240_000,
       wait: async milliseconds => {
@@ -226,7 +226,7 @@ describe("ForwardEmailToWhatsApp", () => {
     const inbox = new FakeEmailInbox([email]);
     const whatsapp = new FakeWhatsAppSender();
     const logger = new FakeLogger();
-    const forwarder = new ForwardEmailToWhatsApp(inbox, whatsapp, {
+    const forwarder = new ForwardEmailToWhatsApp(inbox, inbox, whatsapp, {
       subjectPrefix: "WA:",
     }, logger);
 
@@ -248,7 +248,7 @@ describe("ForwardEmailToWhatsApp", () => {
     const inbox = new FakeEmailInbox(emails);
     const whatsapp = new FakeWhatsAppSender();
     const logger = new FakeLogger();
-    const forwarder = new ForwardEmailToWhatsApp(inbox, whatsapp, {
+    const forwarder = new ForwardEmailToWhatsApp(inbox, inbox, whatsapp, {
       subjectPrefix: "WA:",
     }, logger);
 
@@ -275,7 +275,7 @@ describe("ForwardEmailToWhatsApp", () => {
         return { delivery: new Promise(() => {}) };
       },
     };
-    const forwarder = new ForwardEmailToWhatsApp(inbox, whatsapp, {
+    const forwarder = new ForwardEmailToWhatsApp(inbox, inbox, whatsapp, {
       subjectPrefix: "WA:",
       failureNotification: {
         sender: notificationSender,

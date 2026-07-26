@@ -1,16 +1,12 @@
 import type { AppConfig } from "../../config.js";
 import type { HubPlugin } from "../../core/plugin-runtime.js";
 import type { AppLogger } from "../../ports/app-logger.js";
-import type { EmailInbox, EmailStatusMarker } from "../../ports/email-inbox.js";
+import type { EmailInbox, EmailLabeler, EmailStatusMarker } from "../../ports/email-inbox.js";
 import type { EmailSender } from "../../ports/email-sender.js";
 import type { WhatsAppSender } from "../../ports/whatsapp-sender.js";
 import { ForwardEmailToWhatsApp } from "../../use-cases/forward-email-to-whatsapp.js";
 import type { EmailAutomationHandler } from "../../use-cases/process-email-automations.js";
 import { capabilities } from "../capabilities.js";
-
-type EmailCommandInbox = EmailInbox & EmailStatusMarker & {
-  ensureLabels(labels: string[]): Promise<void>;
-};
 
 export function createEmailCommandToWhatsAppPlugin(config: AppConfig): HubPlugin {
   return {
@@ -19,18 +15,22 @@ export function createEmailCommandToWhatsAppPlugin(config: AppConfig): HubPlugin
       capabilities.appLogger,
       capabilities.emailAutomationHandlers,
       capabilities.emailInbox,
+      capabilities.emailLabeler,
       capabilities.emailSender,
+      capabilities.emailStatusMarker,
       capabilities.whatsappSender,
     ],
     async register(ctx) {
-      const inbox = ctx.require<EmailCommandInbox>(capabilities.emailInbox);
       const emailSender = ctx.require<EmailSender>(capabilities.emailSender);
 
-      await inbox.ensureLabels(["WA/Sent", "WA/Delivered", "WA/Failed"]);
+      await ctx.require<EmailLabeler>(capabilities.emailLabeler)
+        .ensureLabels(["WA/Sent", "WA/Delivered", "WA/Failed"]);
+
       ctx.require<EmailAutomationHandler[]>(
         capabilities.emailAutomationHandlers,
       ).push(new ForwardEmailToWhatsApp(
-        inbox,
+        ctx.require<EmailInbox>(capabilities.emailInbox),
+        ctx.require<EmailStatusMarker>(capabilities.emailStatusMarker),
         ctx.require<WhatsAppSender>(capabilities.whatsappSender),
         {
           subjectPrefix: config.emailToWhatsapp.subjectPrefix,

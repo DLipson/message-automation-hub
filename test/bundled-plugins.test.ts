@@ -149,6 +149,8 @@ describe("bundled plugins", () => {
     ctx.provide(capabilities.appLogger, silentLogger);
     ctx.provide(capabilities.emailSender, new FakeEmailSender());
     ctx.provide(capabilities.emailInbox, inbox);
+    ctx.provide(capabilities.emailLabeler, inbox);
+    ctx.provide(capabilities.emailStatusMarker, inbox);
     ctx.provide(capabilities.whatsappSender, new FakeWhatsAppSender());
     ctx.provide(capabilities.emailAutomationHandlers, handlers);
 
@@ -156,6 +158,21 @@ describe("bundled plugins", () => {
 
     expect(inbox.labels).toEqual([["WA/Sent", "WA/Delivered", "WA/Failed"]]);
     expect(handlers).toHaveLength(1);
+  });
+
+  it("fails fast when the inbox cannot create labels", async () => {
+    const ctx = createPluginContext();
+    ctx.provide(capabilities.appLogger, silentLogger);
+    ctx.provide(capabilities.emailSender, new FakeEmailSender());
+    ctx.provide(capabilities.emailInbox, fakeInbox);
+    ctx.provide(capabilities.whatsappSender, new FakeWhatsAppSender());
+    ctx.provide(capabilities.emailAutomationHandlers, []);
+
+    await expect(
+      registerPlugins([createEmailCommandToWhatsAppPlugin(config())], ctx),
+    ).rejects.toThrow(
+      'Plugin "email-command-to-whatsapp" requires missing capability "email.labels".',
+    );
   });
 });
 

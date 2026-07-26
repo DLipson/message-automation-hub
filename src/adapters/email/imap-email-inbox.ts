@@ -8,7 +8,11 @@ import type { Attachment } from "mailparser";
 import type { InboundEmail } from "../../domain/email.js";
 import { errorMessage, isFileMissing } from "../../errors.js";
 import type { MediaAttachment } from "../../domain/media.js";
-import type { EmailInbox, EmailStatusMarker } from "../../ports/email-inbox.js";
+import type {
+  EmailInbox,
+  EmailLabeler,
+  EmailStatusMarker,
+} from "../../ports/email-inbox.js";
 
 export type ImapEmailInboxConfig = {
   host: string;
@@ -29,7 +33,7 @@ type ImapCheckpoint ={ host: string; user: string; mailbox: string; uidValidity:
 type FetchedEmail = InboundEmail & { uid: number };
 type EmailBatch = { emails: InboundEmail[]; complete(): Promise<void> };
 
-export class ImapEmailInbox implements EmailInbox, EmailStatusMarker {
+export class ImapEmailInbox implements EmailInbox, EmailLabeler, EmailStatusMarker {
   constructor(private readonly config: ImapEmailInboxConfig) {}
 
   async fetchUnread(): Promise<EmailBatch> {

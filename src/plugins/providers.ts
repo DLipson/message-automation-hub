@@ -27,8 +27,18 @@ export function createEmailPlugin(config: AppConfig, env: NodeJS.ProcessEnv = pr
   return {
     id: "email",
     register(ctx) {
+      const inbox = new ImapEmailInbox({
+        ...config.imap,
+        checkpointPath: env.IMAP_CHECKPOINT_FILE ?? join(
+          dirname(env.MESSAGE_HUB_ENV_FILE ?? defaultEnvFilePath()),
+          "imap-checkpoint.json",
+        ),
+      });
+
       ctx.provide(capabilities.emailSender, new SmtpEmailSender(config.smtp));
-      ctx.provide(capabilities.emailInbox, new ImapEmailInbox({ ...config.imap, checkpointPath: env.IMAP_CHECKPOINT_FILE ?? join(dirname(env.MESSAGE_HUB_ENV_FILE ?? defaultEnvFilePath()), "imap-checkpoint.json") }));
+      ctx.provide(capabilities.emailInbox, inbox);
+      ctx.provide(capabilities.emailStatusMarker, inbox);
+      ctx.provide(capabilities.emailLabeler, inbox);
       ctx.provide<EmailAutomationHandler[]>(
         capabilities.emailAutomationHandlers,
         [],
