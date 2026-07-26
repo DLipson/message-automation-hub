@@ -9,6 +9,10 @@ const srcDir = fileURLToPath(new URL("../src", import.meta.url));
 // here would execute the app. Their dependencies are all covered by the other modules below.
 const entrypoints = ["index.ts", "settings/settings-server.ts", "tools/set-smtp-password.ts"];
 
+// keytar dlopens libsecret at import time, which CI runners do not have. secret-store-factory only
+// selects this adapter on a desktop that does, and the factory itself is covered.
+const platformBound = ["adapters/secrets/os-credential-secret-store.ts"];
+
 async function sourceFiles(dir: string): Promise<string[]> {
   const entries = await readdir(dir, { withFileTypes: true });
   const nested = await Promise.all(entries.map(async entry => {
@@ -24,7 +28,7 @@ async function sourceFiles(dir: string): Promise<string[]> {
 describe("every source module imports cleanly", async () => {
   const modules = (await sourceFiles(srcDir))
     .map(path => relative(srcDir, path).replaceAll("\\", "/"))
-    .filter(module => !entrypoints.includes(module));
+    .filter(module => !entrypoints.includes(module) && !platformBound.includes(module));
 
   expect(modules.length).toBeGreaterThan(20);
 
