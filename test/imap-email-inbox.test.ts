@@ -50,12 +50,19 @@ beforeEach(() => {
 });
 
 describe("isAuthenticationFailure", () => {
-  it("detects imapflow auth errors", () => {
-    expect(isAuthenticationFailure(Object.assign(new Error("bad creds"), { authenticationFailed: true }))).toBe(true);
-    expect(isAuthenticationFailure(Object.assign(new Error("nope"), { serverResponseCode: "AUTHENTICATIONFAILED" }))).toBe(true);
+  it("detects permanently rejected credentials", () => {
+    expect(isAuthenticationFailure(Object.assign(new Error("nope"), {
+      serverResponseCode: "AUTHENTICATIONFAILED", authenticationFailed: true,
+    }))).toBe(true);
   });
 
   it("treats transient errors and non-errors as retryable", () => {
+    // Gmail sends this mid-AUTHENTICATE with authenticationFailed: true, but it clears on its own.
+    expect(isAuthenticationFailure(Object.assign(new Error("Command failed"), {
+      responseText: "Too many simultaneous connections. (Failure)",
+      serverResponseCode: "ALERT",
+      authenticationFailed: true,
+    }))).toBe(false);
     expect(isAuthenticationFailure(new Error("ETIMEDOUT"))).toBe(false);
     expect(isAuthenticationFailure(undefined)).toBe(false);
   });

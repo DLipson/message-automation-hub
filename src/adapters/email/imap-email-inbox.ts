@@ -24,10 +24,10 @@ export type ImapEmailInboxConfig = {
 };
 
 // ponytail: imapflow only exports ImapFlow at runtime (no AuthenticationFailure class), so duck-type the error.
-export const isAuthenticationFailure = (error: unknown): boolean => {
-  const e = error as { authenticationFailed?: boolean; responseStatus?: string; serverResponseCode?: string } | null;
-  return Boolean(e?.authenticationFailed) || e?.serverResponseCode === "AUTHENTICATIONFAILED";
-};
+// Its `authenticationFailed` flag is set for ANY failure of the AUTHENTICATE command, including transient
+// ones like "Too many simultaneous connections", so only the AUTHENTICATIONFAILED response code is permanent.
+export const isAuthenticationFailure = (error: unknown): boolean =>
+  (error as { serverResponseCode?: string } | null)?.serverResponseCode === "AUTHENTICATIONFAILED";
 
 type ImapCheckpoint ={ host: string; user: string; mailbox: string; uidValidity: string; lastUid: number };
 type FetchedEmail = InboundEmail & { uid: number };
@@ -37,8 +37,7 @@ export class ImapEmailInbox implements EmailInbox, EmailLabeler, EmailStatusMark
   constructor(private readonly config: ImapEmailInboxConfig) {}
 
   async fetchUnread(): Promise<EmailBatch> {
-    const client = this.createClient();
-    await client.connect();
+    const client = await this.connectClient();
     try {
       const mailbox = await client.mailboxOpen("INBOX");
       const uidValidity = String(mailbox.uidValidity);
@@ -83,7 +82,7 @@ export class ImapEmailInbox implements EmailInbox, EmailLabeler, EmailStatusMark
   }
 
   async ensureLabels(labels: string[]): Promise<void> {
-    const client = this.createClient(); await client.connect();
+    const client = await this.connectClient();
     try { for (const label of labelsWithParents(labels)) { try { await client.mailboxCreate(label); } catch (error) { if (!isAlreadyExistsError(error)) throw error; } } }
     finally { try { await client.logout(); } catch { /* connection may have dropped */ } }
   }
@@ -94,7 +93,7 @@ export class ImapEmailInbox implements EmailInbox, EmailLabeler, EmailStatusMark
 
   private async updateEmail(email: InboundEmail, update: (client: ImapFlow, uid: number) => Promise<void>): Promise<void> {
     const uid = Number(email.id); if (!Number.isInteger(uid)) throw new Error(`Cannot update email without numeric IMAP uid: ${email.id}`);
-    const client = this.createClient(); await client.connect();
+    const client = await this.connectClient();
     try { await client.mailboxOpen("INBOX"); await update(client, uid); } finally { try { await client.logout(); } catch { /* connection may have dropped */ } }
   }
   private async readCheckpoint(): Promise<ImapCheckpoint | null> {
@@ -177,6 +176,24 @@ export class ImapEmailInbox implements EmailInbox, EmailLabeler, EmailStatusMark
       }
       await loopPromise;
     };
+  }
+
+  // ponytail: one connection per operation, so a restart storm can trip the server's simultaneous-connection
+  // limit. Retry transient connect failures rather than letting them kill startup. Pool connections if it recurs.
+  private async connectClient(): Promise<ImapFlow> {
+    let delay = 5000;
+    for (let attempt = 1; ; attempt++) {
+      const client = this.createClient();
+      try {
+        await client.connect();
+        return client;
+      } catch (error) {
+        if (attempt >= 5 || isAuthenticationFailure(error)) throw error;
+        console.error(`IMAP connect failed (attempt ${attempt}): ${errorMessage(error)}. Retrying in ${delay / 1000}s.`);
+        await sleep(delay);
+        delay = Math.min(delay * 2, 60_000);
+      }
+    }
   }
 
   private createClient(): ImapFlow {
