@@ -1,5 +1,17 @@
 # Logs
 
+## 2026-07-26 - Untyped capability registry hid a startup crash
+
+- **Bug** - `PluginContext.require<T>(name: string): T` tied its type parameter to nothing: the body was `capabilities.get(key) as T`. The name/type pairing existed only by convention, asserted by hand at 23 call sites. Two workflows exploited this to pull `"email.receive"` out as `EmailInbox & EmailStatusMarker & { ensureLabels }` — only the first of which the `EmailInbox` port declares.
+- **Impact** - A plugin providing a port-compliant `EmailInbox` (the exact thing the port invites) compiled cleanly, passed `requires` validation because the *name* was registered, then died at startup on `inbox.ensureLabels is not a function`. Latent because core happens to provide `ImapEmailInbox`, which has the method. `index.ts` had the same shape: it required `"whatsapp.channel"` as the concrete `WhatsAppWebChannel` and called `requestPairingCode()`, a method no port declared, exposed over localhost HTTP by the bot control server.
+- **Fix** -
+  - `EmailLabeler` port (`ensureLabels`) and separate capabilities for it and `EmailStatusMarker`, so an inbox that cannot label simply does not provide them and a dependent workflow fails fast with a clear message.
+  - `WhatsAppPairing` port for `requestPairingCode`. `whatsapp.channel` had no consumer left and was removed.
+  - `ForwardEmailToWhatsApp` takes its inbox and status marker as separate constructor dependencies instead of one intersection.
+  - `Capabilities` interface maps every capability name to its contract; `provide`/`require`/`has` are keyed on `keyof Capabilities`. All 23 casts deleted — the type now comes from the name.
+- **Verification** - Red first: the new fail-fast test failed with the real `inbox.ensureLabels is not a function`, and the type assertions failed as *"Unused '@ts-expect-error' directive"* (proving the old API accepted every mistake) before turning green. 112 tests pass, `tsc --noEmit` clean, also clean under `--noUnusedLocals` after deleting 25 type imports the casts had been keeping alive.
+- **Note** - Compile-time enforcement of the type tests depends on `test/**` staying in `tsconfig.json`'s `include`. If tests ever leave the typecheck, the `@ts-expect-error` assertions stop asserting anything.
+
 ## 2026-07-24 - IMAP IDLE push notifications replace polling
 
 - **Problem** - Email-to-WhatsApp delivery took ~4 minutes despite 30s poll interval. Gmail IMAP propagation combined with poll-only architecture caused the delay.
