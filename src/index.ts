@@ -1,8 +1,10 @@
+import { readdir } from "node:fs/promises";
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import { createSecretStore } from "./adapters/secrets/secret-store-factory.js";
 import { loadConfig, loadRuntimeEnv, loadSmtpPassword } from "./config.js";
 import { registerPlugins } from "./core/plugin-runtime.js";
 import { EmailToWhatsAppPoller } from "./email-to-whatsapp-poller.js";
+import { errorMessage } from "./errors.js";
 import { capabilities } from "./plugins/capabilities.js";
 import {
   createEmailPlugin,
@@ -44,7 +46,15 @@ startControlServer(
   pluginContext.require(capabilities.whatsappPairing),
   process.env,
 );
-await whatsappStart;
+// ponytail: a WhatsApp start failure used to reject at top level and kill the process, so systemd
+// restarted us every 10s and email automation went down with it. Log and keep serving instead;
+// the control server stays up so a new pairing code can be requested.
+try {
+  await whatsappStart;
+} catch (error) {
+  console.error(`WhatsApp startup failed: ${errorMessage(error)}`);
+  await logWhatsAppSessionState();
+}
 
 const emailAutomationHandlers = pluginContext.require(
   capabilities.emailAutomationHandlers,
@@ -60,6 +70,19 @@ if (emailAutomationHandlers.length > 0) {
 
   await poller.start();
   console.log("Email automation polling is enabled.");
+}
+
+// LocalAuth is constructed without a dataPath, so it stores the session under the working directory.
+// A crash loop can leave this profile torn or locked, which surfaces as an opaque puppeteer error.
+async function logWhatsAppSessionState(): Promise<void> {
+  const sessionDir = "./.wwebjs_auth";
+  try {
+    const entries = await readdir(sessionDir, { withFileTypes: true, recursive: true });
+    const notable = entries.filter(entry => /Singleton|\.lock$|^Default$|^session/i.test(entry.name));
+    console.error(`WhatsApp session dir ${sessionDir}: ${entries.length} entries; notable: ${notable.map(e => `${e.parentPath}/${e.name}`).join(", ") || "none"}`);
+  } catch (error) {
+    console.error(`WhatsApp session dir ${sessionDir} unreadable: ${errorMessage(error)}`);
+  }
 }
 
 function startControlServer(
