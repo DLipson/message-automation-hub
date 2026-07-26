@@ -62,21 +62,30 @@ type RawWhatsAppMessage = {
   _data?: { notifyName?: string };
 };
 
+// ponytail: WhatsApp Web renames this field without notice (_serialized -> $1, July 2026).
+// Every read of a message's serialized id goes through here, so the next rename is one edit.
+function serializedIdOf(message: RawWhatsAppMessage): string | undefined {
+  const id = message.id;
+
+  if (typeof id === "string") {
+    return id;
+  }
+
+  if (!id || typeof id !== "object") {
+    return undefined;
+  }
+
+  const holder = id as { _serialized?: string; "$1"?: string };
+  return holder._serialized || holder.$1 || undefined;
+}
+
+// The library's own downloadMedia() reads id._serialized directly, so populate it too.
 function normalizeId(message: RawWhatsAppMessage): void {
   const id = message.id;
-  if (
-    id &&
-    typeof id === "object" &&
-    "_serialized" in id &&
-    id._serialized
-  ) {
-    return;
-  }
-  if (id && typeof id === "object" && "$1" in id) {
-    const dollarId = id as { "$1": string };
-    if (dollarId.$1) {
-      (id as { _serialized: string })._serialized = dollarId.$1;
-    }
+  const serialized = serializedIdOf(message);
+
+  if (id && typeof id === "object" && serialized && !id._serialized) {
+    (id as { _serialized: string })._serialized = serialized;
   }
 }
 
@@ -384,10 +393,8 @@ export class WhatsAppWebChannel implements InboundChannel, WhatsAppSender, Whats
       : { id: rawMessage.from };
     const attachments = await this.attachmentsFor(rawMessage);
 
-    const serializedId = rawMessage.id && typeof rawMessage.id === "object" && "_serialized" in rawMessage.id
-      ? (rawMessage.id as { _serialized?: string })._serialized
-      : undefined;
-    const messageId = serializedId ?? `unknown-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+    const messageId = serializedIdOf(rawMessage)
+      ?? `unknown-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 
     return {
       id: messageId,
@@ -436,10 +443,8 @@ export class WhatsAppWebChannel implements InboundChannel, WhatsAppSender, Whats
   ): Promise<RawWhatsAppMedia | undefined> {
     const msgId = messageIdFor(rawMessage);
     const msgFrom = rawMessage.from;
-    const hasSerialized = rawMessage.id && typeof rawMessage.id === "object" && "_serialized" in rawMessage.id
-      && !!(rawMessage.id as { _serialized?: string })._serialized;
 
-    if (hasSerialized) {
+    if (serializedIdOf(rawMessage)) {
       try {
         const media = await rawMessage.downloadMedia!();
         if (media) return media;
@@ -575,22 +580,20 @@ function browserArgs(): string[] {
 }
 
 function messageIdFor(message: RawWhatsAppMessage): string {
+  const serialized = serializedIdOf(message);
+  if (serialized) return serialized;
+
   const id = message.id;
   if (id && typeof id === "object") {
-    if ("_serialized" in id) {
-      const serialized = (id as { _serialized?: string })._serialized;
-      if (serialized) return serialized;
-    }
-
+    // LID messages carry a short id plus fromMe; the serialized form is {fromMe}_{remote}_{id}.
     const idObj = id as { id?: string; fromMe?: boolean };
     if (idObj.id && message.from) {
-      const prefix = idObj.fromMe === true ? "true" : "false";
-      return `${prefix}_${message.from}_${idObj.id}`;
+      return `${idObj.fromMe === true ? "true" : "false"}_${message.from}_${idObj.id}`;
     }
 
     if (idObj.id) return idObj.id;
   }
-  if (id && typeof id === "string") return id;
+
   try { return JSON.stringify(id); } catch { return "unknown"; }
 }
 
