@@ -6,6 +6,7 @@ import { ImapFlow } from "imapflow";
 import { simpleParser } from "mailparser";
 import type { Attachment } from "mailparser";
 import type { InboundEmail } from "../../domain/email.js";
+import { errorMessage, isFileMissing } from "../../errors.js";
 import type { MediaAttachment } from "../../domain/media.js";
 import type { EmailInbox, EmailStatusMarker } from "../../ports/email-inbox.js";
 
@@ -55,7 +56,7 @@ export class ImapEmailInbox implements EmailInbox, EmailStatusMarker {
         if (!message.source || message.uid == null) continue;
         let parsed;
         try { parsed = await simpleParser(message.source); } catch (error) {
-          console.error(`Failed to parse IMAP message UID ${message.uid}: ${formatError(error)}`);
+          console.error(`Failed to parse IMAP message UID ${message.uid}: ${errorMessage(error)}`);
           continue;
         }
         const attachments = parsed.attachments.map(toMediaAttachment);
@@ -99,7 +100,7 @@ export class ImapEmailInbox implements EmailInbox, EmailStatusMarker {
       const lastUid = value.lastUid;
       if (typeof value.host !== "string" || typeof value.user !== "string" || value.mailbox !== "INBOX" || typeof value.uidValidity !== "string" || typeof lastUid !== "number" || !Number.isInteger(lastUid) || lastUid < 0) throw new Error("Invalid IMAP checkpoint contents");
       return value as ImapCheckpoint;
-    } catch (error) { if (error instanceof Error && "code" in error && error.code === "ENOENT") return null; throw error; }
+    } catch (error) { if (isFileMissing(error)) return null; throw error; }
   }
   private async writeCheckpoint(checkpoint: ImapCheckpoint): Promise<void> {
     if (!this.config.checkpointPath) return;
@@ -133,7 +134,7 @@ export class ImapEmailInbox implements EmailInbox, EmailStatusMarker {
           logger: false,
         });
         currentClient = client;
-        client.on("error", error => console.error(`IMAP watcher error: ${formatError(error)}`));
+        client.on("error", error => console.error(`IMAP watcher error: ${errorMessage(error)}`));
         try {
           await client.connect();
           await client.mailboxOpen("INBOX");
@@ -143,11 +144,11 @@ export class ImapEmailInbox implements EmailInbox, EmailStatusMarker {
           await client.idle();
           retryDelay = 5000;
         } catch (error) {
-          console.error(`IMAP watcher error: ${formatError(error)}`);
+          console.error(`IMAP watcher error: ${errorMessage(error)}`);
           firstConnectResolve?.();
           firstConnectResolve = undefined;
           if (isAuthenticationFailure(error)) {
-            console.error(`IMAP watcher: authentication failed (${formatError(error)}). Giving up. Fallback poll will continue.`);
+            console.error(`IMAP watcher: authentication failed (${errorMessage(error)}). Giving up. Fallback poll will continue.`);
             stopped = true;
             break;
           }
@@ -176,7 +177,7 @@ export class ImapEmailInbox implements EmailInbox, EmailStatusMarker {
 
   private createClient(): ImapFlow {
     const client = new ImapFlow({ host: this.config.host, port: this.config.port, secure: this.config.secure, auth: { user: this.config.user, pass: this.config.pass }, logger: false });
-    client.on("error", error => console.error(`IMAP client error: ${formatError(error)}`)); return client;
+    client.on("error", error => console.error(`IMAP client error: ${errorMessage(error)}`)); return client;
   }
 }
 
@@ -184,4 +185,3 @@ function toMediaAttachment(attachment: Attachment): MediaAttachment { return { c
 function referencesFor(references: string[] | string | undefined): string[] { return !references ? [] : Array.isArray(references) ? references : [references]; }
 function labelsWithParents(labels: string[]): string[] { return [...new Set(labels.flatMap(label => { const parts = label.split("/"); return parts.map((_, index) => parts.slice(0, index + 1).join("/")); }))]; }
 function isAlreadyExistsError(error: unknown): boolean { return error instanceof Error && /exist/i.test(error.message); }
-function formatError(error: unknown): string { return error instanceof Error ? error.message : String(error); }

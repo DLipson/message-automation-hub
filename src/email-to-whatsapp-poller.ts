@@ -1,3 +1,4 @@
+import { formatError } from "./errors.js";
 import type { EmailInbox } from "./ports/email-inbox.js";
 
 type UnreadEmailProcessor = {
@@ -56,10 +57,4 @@ export class EmailToWhatsAppPoller {
       this.scheduleNext(this.fallbackPollMs);
     }
   }
-}
-
-function formatError(error: unknown): string {
-  if (error instanceof Error) return error.stack ?? error.message;
-  if (typeof error === "string") return error;
-  return JSON.stringify(error) ?? String(error);
 }

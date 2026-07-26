@@ -1,6 +1,7 @@
 import pkg from "whatsapp-web.js";
 import { platform } from "node:os";
 import { appDefaults } from "../../config.js";
+import { formatError } from "../../errors.js";
 import type { InboundMessage } from "../../domain/message.js";
 import type { MediaAttachment } from "../../domain/media.js";
 import type { EmailSender } from "../../ports/email-sender.js";
@@ -133,7 +134,7 @@ export class WhatsAppWebChannel implements InboundChannel, WhatsAppSender, Whats
     });
 
     this.client.on("auth_failure", message => {
-      logWhatsApp(`Authentication failed: ${formatEventValue(message)}`);
+      logWhatsApp(`Authentication failed: ${formatError(message)}`);
     });
 
     this.client.on("ready", () => {
@@ -142,16 +143,16 @@ export class WhatsAppWebChannel implements InboundChannel, WhatsAppSender, Whats
     });
 
     this.client.on("disconnected", reason => {
-      logWhatsApp(`Client disconnected: ${formatEventValue(reason)}`);
+      logWhatsApp(`Client disconnected: ${formatError(reason)}`);
     });
 
     this.client.on("change_state", state => {
-      logWhatsApp(`State changed: ${formatEventValue(state)}`);
+      logWhatsApp(`State changed: ${formatError(state)}`);
     });
 
     this.client.on("loading_screen", (percent, message) => {
       logWhatsApp(
-        `Loading screen ${formatEventValue(percent)}%: ${formatEventValue(message)}`,
+        `Loading screen ${formatError(percent)}%: ${formatError(message)}`,
       );
     });
 
@@ -204,7 +205,7 @@ export class WhatsAppWebChannel implements InboundChannel, WhatsAppSender, Whats
 
         await this.handler(await this.toInboundMessage(rawMessage));
       } catch (error) {
-        const errorText = formatEventValue(error);
+        const errorText = formatError(error);
         logWhatsApp(`Message handler failed for message ${msgId}: ${errorText}`);
         await this.notifyError(
           `WhatsApp message handler failed: ${msgId}`,
@@ -271,7 +272,7 @@ export class WhatsAppWebChannel implements InboundChannel, WhatsAppSender, Whats
       logWhatsApp("Sent ready notification email.");
     } catch (error) {
       logWhatsApp(
-        `Failed to send ready notification: ${formatEventValue(error)}`,
+        `Failed to send ready notification: ${formatError(error)}`,
       );
     }
   }
@@ -287,7 +288,7 @@ export class WhatsAppWebChannel implements InboundChannel, WhatsAppSender, Whats
         text,
       });
     } catch (sendError) {
-      logWhatsApp(`Failed to send error notification: ${formatEventValue(sendError)}`);
+      logWhatsApp(`Failed to send error notification: ${formatError(sendError)}`);
     }
   }
 
@@ -363,7 +364,7 @@ export class WhatsAppWebChannel implements InboundChannel, WhatsAppSender, Whats
     try {
       return await withTimeout(send, this.sendTimeoutMs, description);
     } catch (error) {
-      throw new Error(`${description} failed: ${formatEventValue(error)}`);
+      throw new Error(`${description} failed: ${formatError(error)}`);
     }
   }
 
@@ -450,7 +451,7 @@ export class WhatsAppWebChannel implements InboundChannel, WhatsAppSender, Whats
         if (media) return media;
       } catch (error) {
         logWhatsApp(
-          `media download failed for message ${msgId} from ${msgFrom}, trying direct download: ${formatEventValue(error)}`,
+          `media download failed for message ${msgId} from ${msgFrom}, trying direct download: ${formatError(error)}`,
         );
       }
     } else {
@@ -463,7 +464,7 @@ export class WhatsAppWebChannel implements InboundChannel, WhatsAppSender, Whats
       return await this.downloadMediaViaPage(msgId);
     } catch (error) {
       logWhatsApp(
-        `Direct media download also failed for message ${msgId}: ${formatEventValue(error)}`,
+        `Direct media download also failed for message ${msgId}: ${formatError(error)}`,
       );
       return undefined;
     }
@@ -654,18 +655,3 @@ function withTimeout<T>(
   ]);
 }
 
-function formatEventValue(value: unknown): string {
-  if (value instanceof Error) {
-    return value.stack ?? value.message;
-  }
-
-  if (typeof value === "string") {
-    return value;
-  }
-
-  try {
-    return JSON.stringify(value) ?? String(value);
-  } catch {
-    return String(value);
-  }
-}

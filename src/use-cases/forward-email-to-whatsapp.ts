@@ -1,4 +1,5 @@
 import type { InboundEmail } from "../domain/email.js";
+import { formatError } from "../errors.js";
 import { isImageAttachment, type MediaAttachment } from "../domain/media.js";
 import type { AppLogger } from "../ports/app-logger.js";
 import type { EmailInbox, EmailStatusMarker } from "../ports/email-inbox.js";
@@ -281,12 +282,4 @@ function randomDelayMs(): number {
 
 function wait(milliseconds: number): Promise<void> {
   return new Promise(resolve => setTimeout(resolve, milliseconds));
-}
-
-function formatError(error: unknown): string {
-  if (error instanceof Error) {
-    return error.stack ?? error.toString();
-  }
-
-  return String(error);
 }

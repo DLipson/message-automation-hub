@@ -1,4 +1,5 @@
 import type { InboundEmail } from "../domain/email.js";
+import { formatError } from "../errors.js";
 import type { AppLogger } from "../ports/app-logger.js";
 import type { EmailInbox } from "../ports/email-inbox.js";
 import type { EmailSender } from "../ports/email-sender.js";
@@ -163,12 +164,4 @@ export class ReplyEmailToWhatsApp implements EmailAutomationHandler {
 
     return null;
   }
-}
-
-function formatError(error: unknown): string {
-  if (error instanceof Error) {
-    return error.stack ?? error.toString();
-  }
-
-  return String(error);
 }

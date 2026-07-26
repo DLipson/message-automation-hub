@@ -1,5 +1,6 @@
 import { chmod, mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import { dirname } from "node:path";
+import { isFileMissing } from "../../errors.js";
 import type { SecretRef, SecretStore } from "../../ports/secret-store.js";
 
 type SecretFile = Record<string, string>;
@@ -56,12 +57,4 @@ export class FileSecretStore implements SecretStore {
 
 function secretKey(ref: SecretRef): string {
   return `${ref.service}/${ref.account}`;
-}
-
-function isFileMissing(error: unknown): boolean {
-  return (
-    error instanceof Error &&
-    "code" in error &&
-    (error as NodeJS.ErrnoException).code === "ENOENT"
-  );
 }

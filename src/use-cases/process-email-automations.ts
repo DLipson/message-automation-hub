@@ -1,4 +1,5 @@
 import type { InboundEmail } from "../domain/email.js";
+import { formatError } from "../errors.js";
 import type { EmailInbox, EmailStatusMarker } from "../ports/email-inbox.js";
 
 export type EmailAutomationBatch = {
@@ -109,8 +110,4 @@ function isIgnoredSubjectSeparator(character: string): boolean {
 
 function isEmailStatusMarker(inbox: EmailInbox): inbox is EmailInbox & EmailStatusMarker {
   return "markFailed" in inbox && typeof inbox.markFailed === "function";
-}
-
-function formatError(error: unknown): string {
-  return error instanceof Error ? error.stack ?? error.message : String(error);
 }

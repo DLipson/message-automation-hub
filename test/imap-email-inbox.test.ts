@@ -39,11 +39,26 @@ vi.mock("imapflow", () => ({
   ImapFlow: imapMock.FakeImapFlow,
 }));
 
-import { ImapEmailInbox } from "../src/adapters/email/imap-email-inbox.js";
+import {
+  ImapEmailInbox,
+  isAuthenticationFailure,
+} from "../src/adapters/email/imap-email-inbox.js";
 
 beforeEach(() => {
   imapMock.clients.length = 0;
   imapMock.resetIdle();
+});
+
+describe("isAuthenticationFailure", () => {
+  it("detects imapflow auth errors", () => {
+    expect(isAuthenticationFailure(Object.assign(new Error("bad creds"), { authenticationFailed: true }))).toBe(true);
+    expect(isAuthenticationFailure(Object.assign(new Error("nope"), { serverResponseCode: "AUTHENTICATIONFAILED" }))).toBe(true);
+  });
+
+  it("treats transient errors and non-errors as retryable", () => {
+    expect(isAuthenticationFailure(new Error("ETIMEDOUT"))).toBe(false);
+    expect(isAuthenticationFailure(undefined)).toBe(false);
+  });
 });
 
 describe("ImapEmailInbox", () => {

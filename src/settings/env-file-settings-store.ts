@@ -1,6 +1,7 @@
 import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import { dirname } from "node:path";
 import { parseEnv } from "node:util";
+import { isFileMissing } from "../errors.js";
 import {
   appSettingsToEnv,
   emptyAppSettings,
@@ -45,13 +46,5 @@ function formatEnvValue(value: string): string {
   }
 
   return JSON.stringify(value);
-}
-
-function isFileMissing(error: unknown): boolean {
-  return (
-    error instanceof Error &&
-    "code" in error &&
-    (error as NodeJS.ErrnoException).code === "ENOENT"
-  );
 }
 

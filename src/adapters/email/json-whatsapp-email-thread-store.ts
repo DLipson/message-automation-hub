@@ -2,6 +2,7 @@ import { randomBytes } from "node:crypto";
 import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { appDefaults, defaultEnvFilePath } from "../../config.js";
+import { isFileMissing } from "../../errors.js";
 import type {
   WhatsAppEmailThread,
   WhatsAppEmailThreadStore,
@@ -69,7 +70,7 @@ export class JsonWhatsAppEmailThreadStore implements WhatsAppEmailThreadStore {
     try {
       return JSON.parse(await readFile(this.filePath, "utf8")) as WhatsAppEmailThread[];
     } catch (error) {
-      if (error instanceof Error && "code" in error && error.code === "ENOENT") {
+      if (isFileMissing(error)) {
         return [];
       }
 
