@@ -88,10 +88,10 @@ export function createWhatsAppWebPlugin(config: AppConfig): HubPlugin {
           : {}),
       });
 
-      ctx.provide(capabilities.whatsappChannel, whatsapp);
       ctx.provide(capabilities.whatsappInbound, whatsapp);
       ctx.provide(capabilities.whatsappSender, whatsapp);
       ctx.provide(capabilities.whatsappChatSender, whatsapp);
+      ctx.provide(capabilities.whatsappPairing, whatsapp);
     },
   };
 }

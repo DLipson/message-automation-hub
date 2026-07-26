@@ -35,6 +35,7 @@ vi.mock("whatsapp-web.js", () => ({
 }));
 
 import type { EmailMessage, EmailSender } from "../src/ports/email-sender.js";
+import type { WhatsAppPairing } from "../src/ports/whatsapp-sender.js";
 import { WhatsAppWebChannel } from "../src/adapters/whatsapp/whatsapp-web-channel.js";
 
 class FakeEmailSender implements EmailSender {
@@ -59,6 +60,18 @@ describe("WhatsAppWebChannel", () => {
     whatsappMock.clients[0]?.handlers.get("code")?.("123456");
 
     expect(log.mock.calls.flat().join("\n")).not.toContain("123456");
+  });
+
+  it("requests pairing codes through the WhatsAppPairing port", async () => {
+    const channel = new WhatsAppWebChannel({ phoneNumber: "12025550108" });
+
+    await channel.start();
+
+    // The control server in index.ts reaches this method over HTTP; it must be
+    // a declared port, not an incidental method on the concrete adapter.
+    const pairing: WhatsAppPairing = channel;
+
+    await expect(pairing.requestPairingCode()).resolves.toBe("123456");
   });
 
   it("catches async inbound message handler failures", async () => {

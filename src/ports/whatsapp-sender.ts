@@ -30,3 +30,12 @@ export interface WhatsAppSender {
 export interface WhatsAppChatSender {
   sendChatMessage(message: WhatsAppChatMessage): Promise<SentMessage>;
 }
+
+/**
+ * Linking a device. Exposed over localhost HTTP by the bot control server, so
+ * it needs a declared contract rather than whatever whatsapp-web.js happens to
+ * offer. Codes are secrets: return them, never log them.
+ */
+export interface WhatsAppPairing {
+  requestPairingCode(): Promise<string>;
+}

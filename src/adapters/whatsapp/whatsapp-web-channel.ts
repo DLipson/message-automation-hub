@@ -16,6 +16,7 @@ import type {
   WhatsAppChatSender,
   WhatsAppDirectImage,
   WhatsAppDirectMessage,
+  WhatsAppPairing,
   WhatsAppSender,
 } from "../../ports/whatsapp-sender.js";
 
@@ -90,7 +91,8 @@ function normalizeId(message: RawWhatsAppMessage): void {
   }
 }
 
-export class WhatsAppWebChannel implements InboundChannel, WhatsAppSender, WhatsAppChatSender {
+export class WhatsAppWebChannel
+implements InboundChannel, WhatsAppSender, WhatsAppChatSender, WhatsAppPairing {
   private readonly client: InstanceType<typeof Client>;
   private readonly phoneNumber: string;
   private readonly sendTimeoutMs: number;

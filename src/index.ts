@@ -1,6 +1,5 @@
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import { createSecretStore } from "./adapters/secrets/secret-store-factory.js";
-import { WhatsAppWebChannel } from "./adapters/whatsapp/whatsapp-web-channel.js";
 import { loadConfig, loadRuntimeEnv, loadSmtpPassword } from "./config.js";
 import { registerPlugins } from "./core/plugin-runtime.js";
 import { EmailToWhatsAppPoller } from "./email-to-whatsapp-poller.js";
@@ -15,6 +14,8 @@ import { createEmailCommandToWhatsAppPlugin } from "./plugins/workflows/email-co
 import { createTransactionCategoryRequestPlugin } from "./plugins/workflows/transaction-category-request.js";
 import { createWhatsAppEmailBridgePlugin } from "./plugins/workflows/whatsapp-email-bridge.js";
 import type { EmailInbox } from "./ports/email-inbox.js";
+import type { InboundChannel } from "./ports/inbound-channel.js";
+import type { WhatsAppPairing } from "./ports/whatsapp-sender.js";
 import type { EmailAutomationHandler } from "./use-cases/process-email-automations.js";
 import { ProcessEmailAutomations } from "./use-cases/process-email-automations.js";
 
@@ -37,12 +38,15 @@ const pluginContext = await registerPlugins([
     ? [createTransactionCategoryRequestPlugin(config)]
     : []),
 ]);
-const whatsapp = pluginContext.require<WhatsAppWebChannel>(
-  capabilities.whatsappChannel,
+const whatsapp = pluginContext.require<InboundChannel>(
+  capabilities.whatsappInbound,
 );
 
 const whatsappStart = whatsapp.start();
-startControlServer(whatsapp, process.env);
+startControlServer(
+  pluginContext.require<WhatsAppPairing>(capabilities.whatsappPairing),
+  process.env,
+);
 await whatsappStart;
 
 const emailAutomationHandlers = pluginContext.require<EmailAutomationHandler[]>(
@@ -62,7 +66,7 @@ if (emailAutomationHandlers.length > 0) {
 }
 
 function startControlServer(
-  whatsappChannel: WhatsAppWebChannel,
+  pairing: WhatsAppPairing,
   env: NodeJS.ProcessEnv,
 ): void {
   const port = Number(env.MESSAGE_HUB_BOT_CONTROL_PORT ?? 0);
@@ -74,7 +78,7 @@ function startControlServer(
 
   const server = createServer(async (request, response) => {
     try {
-      await routeControlRequest(whatsappChannel, token, request, response);
+      await routeControlRequest(pairing, token, request, response);
     } catch (error) {
       sendJson(response, 500, {
         error: error instanceof Error ? error.message : "Unknown error",
@@ -88,7 +92,7 @@ function startControlServer(
 }
 
 async function routeControlRequest(
-  whatsappChannel: WhatsAppWebChannel,
+  pairing: WhatsAppPairing,
   token: string,
   request: IncomingMessage,
   response: ServerResponse,
@@ -101,7 +105,7 @@ async function routeControlRequest(
   }
 
   if (request.method === "POST" && url.pathname === "/pairing-code") {
-    const code = await whatsappChannel.requestPairingCode();
+    const code = await pairing.requestPairingCode();
     sendJson(response, 200, { code });
     return;
   }
