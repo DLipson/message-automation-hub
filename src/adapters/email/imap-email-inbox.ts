@@ -2,7 +2,7 @@ import { randomBytes } from "node:crypto";
 import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import { dirname } from "node:path";
 import { setTimeout as sleep } from "node:timers/promises";
-import { AuthenticationFailure, ImapFlow } from "imapflow";
+import { ImapFlow } from "imapflow";
 import { simpleParser } from "mailparser";
 import type { Attachment } from "mailparser";
 import type { InboundEmail } from "../../domain/email.js";
@@ -18,7 +18,13 @@ export type ImapEmailInboxConfig = {
   checkpointPath?: string;
 };
 
-type ImapCheckpoint = { host: string; user: string; mailbox: string; uidValidity: string; lastUid: number };
+// ponytail: imapflow only exports ImapFlow at runtime (no AuthenticationFailure class), so duck-type the error.
+export const isAuthenticationFailure = (error: unknown): boolean => {
+  const e = error as { authenticationFailed?: boolean; responseStatus?: string; serverResponseCode?: string } | null;
+  return Boolean(e?.authenticationFailed) || e?.serverResponseCode === "AUTHENTICATIONFAILED";
+};
+
+type ImapCheckpoint ={ host: string; user: string; mailbox: string; uidValidity: string; lastUid: number };
 type FetchedEmail = InboundEmail & { uid: number };
 type EmailBatch = { emails: InboundEmail[]; complete(): Promise<void> };
 
@@ -140,8 +146,8 @@ export class ImapEmailInbox implements EmailInbox, EmailStatusMarker {
           console.error(`IMAP watcher error: ${formatError(error)}`);
           firstConnectResolve?.();
           firstConnectResolve = undefined;
-          if (error instanceof AuthenticationFailure) {
-            console.error(`IMAP watcher: authentication failed (${error.message}). Giving up. Fallback poll will continue.`);
+          if (isAuthenticationFailure(error)) {
+            console.error(`IMAP watcher: authentication failed (${formatError(error)}). Giving up. Fallback poll will continue.`);
             stopped = true;
             break;
           }
