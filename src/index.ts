@@ -16,51 +16,65 @@ import { createEmailCommandToWhatsAppPlugin } from "./plugins/workflows/email-co
 import { createTransactionCategoryRequestPlugin } from "./plugins/workflows/transaction-category-request.js";
 import { createWhatsAppEmailBridgePlugin } from "./plugins/workflows/whatsapp-email-bridge.js";
 import type { WhatsAppPairing } from "./ports/whatsapp-sender.js";
+import { reportStartupFailure } from "./startup.js";
 import { ProcessEmailAutomations } from "./use-cases/process-email-automations.js";
 
-loadRuntimeEnv();
-
-const secretStore = await createSecretStore();
-const smtpPassword = await loadSmtpPassword(secretStore);
-const config = loadConfig(process.env, { smtpPassword });
-const logger = console;
-const pluginContext = await registerPlugins([
-  createLoggerPlugin(logger),
-  createEmailPlugin(config, process.env),
-  createThreadStorePlugin(config, process.env),
-  createWhatsAppWebPlugin(config),
-  createWhatsAppEmailBridgePlugin(config),
-  ...(config.emailToWhatsapp.enabled
-    ? [createEmailCommandToWhatsAppPlugin(config)]
-    : []),
-  ...(config.transactionCategoryRequest.enabled
-    ? [createTransactionCategoryRequestPlugin(config)]
-    : []),
-]);
-const whatsapp = pluginContext.require(
-  capabilities.whatsappInbound,
-);
-
-const whatsappStart = whatsapp.start();
-startControlServer(
-  pluginContext.require(capabilities.whatsappPairing),
-  process.env,
-);
-// ponytail: a WhatsApp start failure used to reject at top level and kill the process, so systemd
-// restarted us every 10s and email automation went down with it. Log and keep serving instead;
-// the control server stays up so a new pairing code can be requested.
+// Everything here runs under top-level await, so an uncaught failure surfaces as an
+// unhandled rejection: a bare stack that says neither "startup" nor which dependency
+// refused us. Exit deliberately with one line that does.
 try {
-  await whatsappStart;
+  await start();
 } catch (error) {
-  console.error(`WhatsApp startup failed: ${errorMessage(error)}`);
-  await logWhatsAppSessionState();
+  reportStartupFailure(error);
+  process.exit(1);
 }
 
-const emailAutomationHandlers = pluginContext.require(
-  capabilities.emailAutomationHandlers,
-);
+async function start(): Promise<void> {
+  loadRuntimeEnv();
 
-if (emailAutomationHandlers.length > 0) {
+  const secretStore = await createSecretStore();
+  const smtpPassword = await loadSmtpPassword(secretStore);
+  const config = loadConfig(process.env, { smtpPassword });
+  const logger = console;
+  const pluginContext = await registerPlugins([
+    createLoggerPlugin(logger),
+    createEmailPlugin(config, process.env),
+    createThreadStorePlugin(config, process.env),
+    createWhatsAppWebPlugin(config),
+    createWhatsAppEmailBridgePlugin(config),
+    ...(config.emailToWhatsapp.enabled
+      ? [createEmailCommandToWhatsAppPlugin(config)]
+      : []),
+    ...(config.transactionCategoryRequest.enabled
+      ? [createTransactionCategoryRequestPlugin(config)]
+      : []),
+  ]);
+  const whatsapp = pluginContext.require(capabilities.whatsappInbound);
+
+  const whatsappStart = whatsapp.start();
+  startControlServer(
+    pluginContext.require(capabilities.whatsappPairing),
+    process.env,
+  );
+  // ponytail: a WhatsApp start failure used to reject at top level and kill the process, so systemd
+  // restarted us every 10s and email automation went down with it. Log and keep serving instead;
+  // the control server stays up so a new pairing code can be requested. Deliberately narrower than
+  // the startup catch above: this one continues, that one exits.
+  try {
+    await whatsappStart;
+  } catch (error) {
+    console.error(`WhatsApp startup failed: ${errorMessage(error)}`);
+    await logWhatsAppSessionState();
+  }
+
+  const emailAutomationHandlers = pluginContext.require(
+    capabilities.emailAutomationHandlers,
+  );
+
+  if (emailAutomationHandlers.length === 0) {
+    return;
+  }
+
   const inbox = pluginContext.require(capabilities.emailInbox);
   const poller = new EmailToWhatsAppPoller(
     new ProcessEmailAutomations(inbox, emailAutomationHandlers),

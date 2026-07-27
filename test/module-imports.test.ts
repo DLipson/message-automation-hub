@@ -30,12 +30,18 @@ describe("every source module imports cleanly", async () => {
     .map(path => relative(srcDir, path).replaceAll("\\", "/"))
     .filter(module => !entrypoints.includes(module) && !platformBound.includes(module));
 
-  expect(modules.length).toBeGreaterThan(20);
+  // In its own test rather than the describe body: an expect() that throws during
+  // collection reports as a suite error instead of a failing test.
+  it("finds the source tree", () => {
+    expect(modules.length).toBeGreaterThan(20);
+  });
 
   for (const module of modules) {
     // Relative specifier, not a file:// URL — Vite cannot resolve the percent-encoded spaces in this path.
+    // Generous timeout: these transform imapflow, mailparser and puppeteer through Vite, which can
+    // exceed the 5s default when the suite runs files in parallel on a loaded machine.
     it(module, async () => {
       await expect(import(`../src/${module}`)).resolves.toBeDefined();
-    });
+    }, 30_000);
   }
 });
