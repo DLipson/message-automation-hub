@@ -1,5 +1,17 @@
 # Logs
 
+## 2026-07-26 - IMAP connection storm, restart loop, and leaked sockets
+
+Three defects stacked into one outage: the bot crash-looped 37 times against Gmail with `3 NO [ALERT] Too many simultaneous connections`, never reaching a successful login.
+
+- **Trigger** - Gmail caps an account at 15 simultaneous IMAP connections and reaps lingering ones slowly. A restart while the previous process's IDLE connection was still registered server-side put the account over the cap.
+- **Defect 1: transient failure classified as permanent.** imapflow sets `authenticationFailed: true` on *any* AUTHENTICATE failure, including "Too many simultaneous connections", which clears on its own. `isAuthenticationFailure` trusted that flag, so the IDLE watcher treated a temporary rate limit as rotated credentials and gave up permanently. Fixed by keying only on `serverResponseCode === "AUTHENTICATIONFAILED"` — an allowlist of the one code known to be permanent, so an unrecognized failure stays retryable. Note imapflow *has* an `AuthenticationFailure` class internally but does not export it; do not reach for it.
+- **Defect 2: abandoned clients were never closed.** imapflow closes its own socket on socket errors and on connect/greeting timeouts, but **not** when the server refuses AUTHENTICATE — that path only rejects the connect promise (`imap-flow.js`, the `startSession()` catch inside `initialOK`), and no `close`/`end` listener is attached until after the session is up. So each retry left a live socket: up to 5 per `connectClient()` call, feeding the exact limit it was retrying against. `watchNewMail` leaked the same way and worse, retrying indefinitely, and also abandoned a healthy client on every 25-minute `maxIdleTime` reconnect. Every abandoned client now goes through `closeQuietly()`.
+- **Defect 3: nothing stopped the restart loop.** `Restart=on-failure` with `RestartSec=10` and no start limit restarted every 10s forever, and each attempt added connections. Now `RestartSec=60` with `StartLimitBurst=5` over `StartLimitIntervalSec=600`, so the unit lands in `failed` after five tries instead of hammering the server. This is the load-bearing fix for a *permanent* failure such as rotated credentials, which fails instantly with no backoff for the retry logic to absorb.
+- **Verification** - 5 new tests, red first (`close()` called 0 times in all five): retried transient failure, exhausted attempts, permanently rejected credentials, failed watcher connect, and the IDLE-cycle reconnect. 151 tests pass, `tsc --noEmit` clean.
+- **Watch out** - Fixing the leak exposed a latent hang: `stop()` can only unblock `idle()` via `currentClient`, so a client that connects after stopping begins would IDLE forever with nobody to resolve it. The watcher now checks `stopped` after `mailboxOpen` and refuses to enter IDLE.
+- **Not caught locally, and would not have been.** With stale credentials you fail before AUTHENTICATE; with real ones you add load to the same account. The failure is a connection budget plus a restart loop, not a code path. What *is* worth having is `test/module-imports.test.ts` (added 663b57a) for import-time breakage, and eventually a boot-with-fakes harness — the typed capability registry checks a capability's type, not that anything provides it.
+
 ## 2026-07-26 - Untyped capability registry hid a startup crash
 
 - **Bug** - `PluginContext.require<T>(name: string): T` tied its type parameter to nothing: the body was `capabilities.get(key) as T`. The name/type pairing existed only by convention, asserted by hand at 23 call sites. Two workflows exploited this to pull `"email.receive"` out as `EmailInbox & EmailStatusMarker & { ensureLabels }` — only the first of which the `EmailInbox` port declares.
@@ -17,7 +29,7 @@
 - **Problem** - Email-to-WhatsApp delivery took ~4 minutes despite 30s poll interval. Gmail IMAP propagation combined with poll-only architecture caused the delay.
 - **Fix** - Added `watchNewMail()` to `EmailInbox` port. `ImapEmailInbox` implements it using IMAP IDLE (persistent connection + push notifications via `exists` events + auto-reconnect loop with 25-minute maxIdleTime cycles). `EmailToWhatsAppPoller` now uses push as the primary trigger with a configurable fallback poll as safety net. Debounce coalesces rapid `exists` events to 1 second.
 - **Follow-up fixes:**
-  - Auth failure no longer retries every 5s forever: `AuthenticationFailure` (bad password/rotated creds) stops the watch loop immediately. Transient errors use exponential backoff (5s → 300s cap). Fallback poll keeps working.
+  - Auth failure no longer retries every 5s forever: a permanent credential rejection stops the watch loop immediately. Transient errors use exponential backoff (5s → 300s cap). Fallback poll keeps working. **Superseded 2026-07-26:** this originally keyed off imapflow's `AuthenticationFailure` class and then its `authenticationFailed` flag; both were wrong. See the 2026-07-26 connection-storm entry — only `serverResponseCode === "AUTHENTICATIONFAILED"` is permanent.
   - Consolidated 5 independently-defined `FakeEmailInbox` classes into `test/fakes/fake-email-inbox.ts`.
 - **Verification** - 3 new `watchNewMail` tests (connects+opens+idles, debounced callback, stop logs out), 2 new poller tests (watcher fires processUnread, stop unwatches). All 106 tests pass, typecheck clean.
 
