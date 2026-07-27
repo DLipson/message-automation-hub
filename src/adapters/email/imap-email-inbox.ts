@@ -141,6 +141,10 @@ export class ImapEmailInbox implements EmailInbox, EmailLabeler, EmailStatusMark
         try {
           await client.connect();
           await client.mailboxOpen("INBOX");
+          // stop() may have been called while this connection was being set up. It
+          // can only unblock idle() through currentClient, so never enter IDLE once
+          // stopping has begun.
+          if (stopped) { closeQuietly(client); break; }
           client.on("exists", scheduleCallback);
           firstConnectResolve?.();
           firstConnectResolve = undefined;
@@ -158,6 +162,8 @@ export class ImapEmailInbox implements EmailInbox, EmailLabeler, EmailStatusMark
         }
         client.off("exists", scheduleCallback);
         client.removeAllListeners("error");
+        closeQuietly(client);
+        if (currentClient === client) currentClient = undefined;
         if (!stopped) {
           await sleep(retryDelay);
           retryDelay = Math.min(retryDelay * 2, 300_000);
@@ -188,6 +194,7 @@ export class ImapEmailInbox implements EmailInbox, EmailLabeler, EmailStatusMark
         await client.connect();
         return client;
       } catch (error) {
+        closeQuietly(client);
         if (attempt >= 5 || isAuthenticationFailure(error)) throw error;
         console.error(`IMAP connect failed (attempt ${attempt}): ${errorMessage(error)}. Retrying in ${delay / 1000}s.`);
         await sleep(delay);
@@ -206,3 +213,15 @@ function toMediaAttachment(attachment: Attachment): MediaAttachment { return { c
 function referencesFor(references: string[] | string | undefined): string[] { return !references ? [] : Array.isArray(references) ? references : [references]; }
 function labelsWithParents(labels: string[]): string[] { return [...new Set(labels.flatMap(label => { const parts = label.split("/"); return parts.map((_, index) => parts.slice(0, index + 1).join("/")); }))]; }
 function isAlreadyExistsError(error: unknown): boolean { return error instanceof Error && /exist/i.test(error.message); }
+
+// imapflow closes its own socket on socket errors and on connect/greeting timeouts, but NOT when the
+// server refuses AUTHENTICATE: that path only rejects the connect promise (imap-flow.js initialOK).
+// So every client we abandon gets closed here, or a retry leaks a connection into the same limit it
+// is retrying against. Also covers the maxIdleTime reconnect, which abandons a healthy client.
+function closeQuietly(client: ImapFlow): void {
+  try {
+    client.close();
+  } catch (error) {
+    console.error(`Ignoring IMAP close failure: ${errorMessage(error)}`);
+  }
+}
