@@ -62,6 +62,25 @@ describe("WhatsAppWebChannel", () => {
     expect(log.mock.calls.flat().join("\n")).not.toContain("123456");
   });
 
+  it("logs the awaiting-link notice once, not on every qr refresh", async () => {
+    const log = vi.spyOn(console, "log").mockImplementation(() => {});
+    const channel = new WhatsAppWebChannel({ phoneNumber: "12025550108" });
+
+    await channel.start();
+    const client = whatsappMock.clients[0];
+    client?.handlers.get("qr")?.("qr-1");
+    client?.handlers.get("qr")?.("qr-2");
+    client?.handlers.get("qr")?.("qr-3");
+
+    const notices = log.mock.calls.flat().join("\n").match(/Waiting to be linked/g) ?? [];
+    expect(notices).toHaveLength(1);
+
+    // A fresh unlink after a successful link should say so again.
+    client?.handlers.get("authenticated")?.();
+    client?.handlers.get("qr")?.("qr-4");
+    expect(log.mock.calls.flat().join("\n").match(/Waiting to be linked/g)).toHaveLength(2);
+  });
+
   it("requests pairing codes through the WhatsAppPairing port", async () => {
     const channel = new WhatsAppWebChannel({ phoneNumber: "12025550108" });
 

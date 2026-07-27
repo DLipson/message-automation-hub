@@ -102,6 +102,7 @@ implements InboundChannel, WhatsAppSender, WhatsAppChatSender, WhatsAppPairing {
   private readonly errorNotification?: WhatsAppWebChannelConfig["errorNotification"];
   private handler?: InboundMessageHandler;
   private pairingCodeRequests = 0;
+  private awaitingLinkLogged = false;
   private deliveryQueue: Array<(status: DeliveryStatus) => void> = [];
 
   constructor(config: WhatsAppWebChannelConfig) {
@@ -132,6 +133,7 @@ implements InboundChannel, WhatsAppSender, WhatsAppChatSender, WhatsAppPairing {
     });
 
     this.client.on("authenticated", () => {
+      this.awaitingLinkLogged = false;
       logWhatsApp("Client authenticated.");
     });
 
@@ -158,9 +160,13 @@ implements InboundChannel, WhatsAppSender, WhatsAppChatSender, WhatsAppPairing {
       );
     });
 
+    // whatsapp-web.js re-emits "qr" every ~20s while unlinked. Say so once per unlinked stretch
+    // instead of every refresh, so a device waiting to be paired cannot bury real errors in the log.
     this.client.on("qr", () => {
+      if (this.awaitingLinkLogged) return;
+      this.awaitingLinkLogged = true;
       logWhatsApp(
-        "QR login requested. Phone-number pairing code was not requested automatically; use Request Pairing Code when you are ready to link a device.",
+        "Waiting to be linked. Nothing further will be logged until you use Request Pairing Code.",
       );
     });
 
