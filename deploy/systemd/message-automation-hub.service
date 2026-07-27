@@ -2,6 +2,12 @@
 Description=Message Automation Hub
 After=network-online.target
 Wants=network-online.target
+# Bad credentials fail immediately with no backoff, so without a start limit the
+# unit restarts every RestartSec forever, hammering the mail server and burying
+# the cause in the journal. Give up after 5 tries in 10 minutes and sit in
+# "failed", which is the state that actually shows up in systemctl status.
+StartLimitIntervalSec=600
+StartLimitBurst=5
 
 [Service]
 Type=simple
@@ -14,7 +20,7 @@ Environment=PUPPETEER_CACHE_DIR=/home/opc/.cache/puppeteer
 EnvironmentFile=-/etc/message-automation-hub/control.env
 ExecStart=/usr/bin/npm run start
 Restart=on-failure
-RestartSec=10
+RestartSec=60
 User=opc
 Group=opc
 
