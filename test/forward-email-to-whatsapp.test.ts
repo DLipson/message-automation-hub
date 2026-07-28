@@ -10,9 +10,8 @@ import type {
   WhatsAppSender,
 } from "../src/ports/whatsapp-sender.js";
 import { FakeEmailInbox } from "./fakes/fake-email-inbox.js";
-import { createPluginContext } from "../src/core/plugin-runtime.js";
-import { ProcessEmailAutomations } from "../src/use-cases/process-email-automations.js";
 import { ForwardEmailToWhatsApp } from "../src/use-cases/forward-email-to-whatsapp.js";
+import { runWithEmailHandler } from "./fakes/run-with-email-handler.js";
 
 class FakeEmailSender implements EmailSender {
   readonly sent: EmailMessage[] = [];
@@ -58,9 +57,7 @@ describe("ForwardEmailToWhatsApp", () => {
       subjectPrefix: "WA:",
     }, logger);
 
-    const ctxpa = createPluginContext();
-    ctxpa.on("email.received", ({ email, batch }) => forwarder.handle(email, batch));
-    await new ProcessEmailAutomations(inbox, ctxpa).processUnread();
+    await runWithEmailHandler(inbox, forwarder).processUnread();
 
     expect(whatsapp.sent).toEqual([
       {
@@ -94,9 +91,7 @@ describe("ForwardEmailToWhatsApp", () => {
       subjectPrefix: "WA:",
     });
 
-    const ctxpa = createPluginContext();
-    ctxpa.on("email.received", ({ email, batch }) => forwarder.handle(email, batch));
-    await new ProcessEmailAutomations(inbox, ctxpa).processUnread();
+    await runWithEmailHandler(inbox, forwarder).processUnread();
 
     expect(whatsapp.sent).toEqual([]);
     expect(whatsapp.sentImages).toEqual([
@@ -130,9 +125,7 @@ describe("ForwardEmailToWhatsApp", () => {
       },
     }, logger);
 
-    const ctxpa = createPluginContext();
-    ctxpa.on("email.received", ({ email, batch }) => forwarder.handle(email, batch));
-    await new ProcessEmailAutomations(inbox, ctxpa).processUnread();
+    await runWithEmailHandler(inbox, forwarder).processUnread();
 
     expect(whatsapp.sentImages).toEqual([
       {
@@ -184,9 +177,7 @@ describe("ForwardEmailToWhatsApp", () => {
       },
     }, logger);
 
-    const ctxpa = createPluginContext();
-    ctxpa.on("email.received", ({ email, batch }) => forwarder.handle(email, batch));
-    await new ProcessEmailAutomations(inbox, ctxpa).processUnread();
+    await runWithEmailHandler(inbox, forwarder).processUnread();
 
     expect(whatsapp.sentImages).toHaveLength(1);
     expect(inbox.processed).toEqual([email]);
@@ -219,9 +210,7 @@ describe("ForwardEmailToWhatsApp", () => {
       },
     });
 
-    const ctxpa = createPluginContext();
-    ctxpa.on("email.received", ({ email, batch }) => forwarder.handle(email, batch));
-    await new ProcessEmailAutomations(inbox, ctxpa).processUnread();
+    await runWithEmailHandler(inbox, forwarder).processUnread();
 
     expect(waits).toEqual([240_000]);
     expect(whatsapp.sentImages).toHaveLength(2);
@@ -240,9 +229,7 @@ describe("ForwardEmailToWhatsApp", () => {
       subjectPrefix: "WA:",
     }, logger);
 
-    const ctxpa = createPluginContext();
-    ctxpa.on("email.received", ({ email, batch }) => forwarder.handle(email, batch));
-    await new ProcessEmailAutomations(inbox, ctxpa).processUnread();
+    await runWithEmailHandler(inbox, forwarder).processUnread();
 
     expect(whatsapp.sent).toEqual([]);
     expect(whatsapp.sentImages).toEqual([]);
@@ -264,9 +251,7 @@ describe("ForwardEmailToWhatsApp", () => {
       subjectPrefix: "WA:",
     }, logger);
 
-    const ctxpa = createPluginContext();
-    ctxpa.on("email.received", ({ email, batch }) => forwarder.handle(email, batch));
-    await new ProcessEmailAutomations(inbox, ctxpa).processUnread();
+    await runWithEmailHandler(inbox, forwarder).processUnread();
 
     expect(whatsapp.sent).toEqual([]);
     expect(whatsapp.sentImages).toEqual([]);
@@ -298,9 +283,7 @@ describe("ForwardEmailToWhatsApp", () => {
       },
     });
 
-    const ctxpa = createPluginContext();
-    ctxpa.on("email.received", ({ email, batch }) => forwarder.handle(email, batch));
-    await new ProcessEmailAutomations(inbox, ctxpa).processUnread();
+    await runWithEmailHandler(inbox, forwarder).processUnread();
 
     expect(inbox.processed).toEqual([email]);
     expect(inbox.failed).toEqual([email]);
