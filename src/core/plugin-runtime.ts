@@ -41,6 +41,15 @@ export type CapabilityName = keyof Capabilities;
  * stops at the first one that returns true (first-wins / chain of
  * responsibility). Handlers return false to pass the event to the next
  * registered handler.
+ *
+ * Out-of-repo plugins add their own events by augmenting this interface
+ * (the relative path is the correct module specifier):
+ *
+ *     declare module "../src/core/plugin-runtime.js" {
+ *       interface EventMap {
+ *         "ynab.synced": YnabPayload;
+ *       }
+ *     }
  */
 export interface EventMap {
   "email.received": { email: InboundEmail; batch: EmailAutomationBatch };
@@ -104,7 +113,7 @@ export function createPluginContext(): PluginContext {
 
     async emit<E extends EventName>(event: E, payload: EventMap[E]): Promise<boolean> {
       const key = requiredName(event, "Event name");
-      const list = eventHandlers.get(key) ?? [];
+      const list = [...(eventHandlers.get(key) ?? [])];
 
       for (const handler of list) {
         if (await handler(payload)) {

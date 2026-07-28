@@ -9,7 +9,7 @@ import type {
 } from "../src/ports/whatsapp-sender.js";
 import { FakeEmailInbox } from "./fakes/fake-email-inbox.js";
 import { RequestTransactionCategoryFromEmail } from "../src/automations/transaction-category-request/request-from-email.js";
-import { runWithEmailHandler } from "./fakes/run-with-email-handler.js";
+import { runWithEmailHandler } from "./helpers/run-with-email-handler.js";
 
 class FakeWhatsAppSender implements WhatsAppSender {
   readonly sent: WhatsAppDirectMessage[] = [];

@@ -207,10 +207,10 @@ describe("event system", () => {
   it("rejects empty event names at runtime", async () => {
     const ctx = createPluginContext();
 
-    expect(() => (ctx.on as (e: string, h: () => Promise<boolean>) => void)("", () => Promise.resolve(true))).toThrow(
+    expect(() => ctx.on("" as EventName, () => Promise.resolve(true))).toThrow(
       "Event name is required.",
     );
-    await expect((ctx.emit as (e: string, p: unknown) => Promise<boolean>)("", {})).rejects.toThrow(
+    await expect(ctx.emit("" as EventName, {} as never)).rejects.toThrow(
       "Event name is required.",
     );
   });

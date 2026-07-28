@@ -11,7 +11,7 @@ import type {
 } from "../src/ports/whatsapp-sender.js";
 import { FakeEmailInbox } from "./fakes/fake-email-inbox.js";
 import { ForwardEmailToWhatsApp } from "../src/use-cases/forward-email-to-whatsapp.js";
-import { runWithEmailHandler } from "./fakes/run-with-email-handler.js";
+import { runWithEmailHandler } from "./helpers/run-with-email-handler.js";
 
 class FakeEmailSender implements EmailSender {
   readonly sent: EmailMessage[] = [];
