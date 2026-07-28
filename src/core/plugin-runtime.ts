@@ -12,26 +12,16 @@ import type {
   WhatsAppPairing,
   WhatsAppSender,
 } from "../ports/whatsapp-sender.js";
-import type { EmailAutomationBatch, EmailAutomationHandler } from "../use-cases/process-email-automations.js";
+import type { EmailAutomationBatch } from "../use-cases/process-email-automations.js";
 import type { WhatsAppEmailThreadStore } from "../use-cases/whatsapp-email-thread-store.js";
 
 /**
  * Every capability name paired with the contract behind it. This is the one
  * place the pairing is written down, so provide()/require() can check it
  * instead of trusting a caller-supplied type argument.
- *
- * Plugins shipped from other repositories add their own entries by augmenting
- * this interface:
- *
- *     declare module "message-automation-hub/core/plugin-runtime.js" {
- *       interface Capabilities {
- *         "ynab.budget": YnabBudget;
- *       }
- *     }
  */
 export interface Capabilities {
   "app.logger": AppLogger;
-  "email.automation.handlers": EmailAutomationHandler[];
   "email.labels": EmailLabeler;
   "email.receive": EmailInbox;
   "email.send": EmailSender;
@@ -47,14 +37,10 @@ export type CapabilityName = keyof Capabilities;
 
 /**
  * Event registry — plugins communicate via named events instead of pushing
- * into capability arrays. Out-of-repo plugins add their own events by
- * augmenting this interface:
- *
- *     declare module "message-automation-hub/core/plugin-runtime.js" {
- *       interface EventMap {
- *         "ynab.transaction.imported": YnabImportPayload;
- *       }
- *     }
+ * into capability arrays. emit() calls handlers in registration order and
+ * stops at the first one that returns true (first-wins / chain of
+ * responsibility). Handlers return false to pass the event to the next
+ * registered handler.
  */
 export interface EventMap {
   "email.received": { email: InboundEmail; batch: EmailAutomationBatch };

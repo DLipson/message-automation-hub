@@ -67,6 +67,10 @@ async function start(): Promise<void> {
     await logWhatsAppSessionState();
   }
 
+  if (!config.emailToWhatsapp.enabled && !config.transactionCategoryRequest.enabled) {
+    return;
+  }
+
   const inbox = pluginContext.require(capabilities.emailInbox);
   const poller = new EmailToWhatsAppPoller(
     new ProcessEmailAutomations(inbox, pluginContext),

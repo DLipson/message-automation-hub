@@ -4,7 +4,6 @@ import type { CapabilityName } from "../core/plugin-runtime.js";
 // instead of at startup; the types behind each name live in Capabilities.
 export const capabilities = {
   appLogger: "app.logger",
-  emailAutomationHandlers: "email.automation.handlers",
   emailInbox: "email.receive",
   emailLabeler: "email.labels",
   emailSender: "email.send",
