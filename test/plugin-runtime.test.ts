@@ -3,6 +3,8 @@ import {
   createPluginContext,
   registerPlugins,
   type CapabilityName,
+  type EventHandler,
+  type EventName,
   type HubPlugin,
 } from "../src/core/plugin-runtime.js";
 
@@ -134,5 +136,84 @@ describe("plugin runtime", () => {
     await expect(registerPlugins([
       { id: " ", register() {} },
     ])).rejects.toThrow("Plugin id is required.");
+  });
+});
+
+describe("event system", () => {
+  it("fires a registered handler when the event is emitted", async () => {
+    const ctx = createPluginContext();
+    const ids: string[] = [];
+
+    ctx.on("email.received", async ({ email }) => {
+      ids.push(email.id);
+      return true;
+    });
+
+    const result = await ctx.emit("email.received", {
+      email: { id: "e1", subject: "", text: "", receivedAt: new Date() },
+      batch: { sentWhatsAppImage: false },
+    });
+
+    expect(result).toBe(true);
+    expect(ids).toEqual(["e1"]);
+  });
+
+  it("calls handlers in order until one returns true", async () => {
+    const ctx = createPluginContext();
+    const order: number[] = [];
+
+    ctx.on("email.received", async () => { order.push(1); return false; });
+    ctx.on("email.received", async () => { order.push(2); return true; });
+    ctx.on("email.received", async () => { order.push(3); return true; });
+
+    const result = await ctx.emit("email.received", {
+      email: { id: "e1", subject: "", text: "", receivedAt: new Date() },
+      batch: { sentWhatsAppImage: false },
+    });
+
+    expect(result).toBe(true);
+    expect(order).toEqual([1, 2]);
+  });
+
+  it("returns false when no handler is registered for the event", async () => {
+    const ctx = createPluginContext();
+
+    const result = await ctx.emit("email.received", {
+      email: { id: "e1", subject: "", text: "", receivedAt: new Date() },
+      batch: { sentWhatsAppImage: false },
+    });
+
+    expect(result).toBe(false);
+  });
+
+  it("propagates errors thrown by handlers", async () => {
+    const ctx = createPluginContext();
+
+    ctx.on("email.received", async () => { throw new Error("oops"); });
+
+    await expect(ctx.emit("email.received", {
+      email: { id: "e1", subject: "", text: "", receivedAt: new Date() },
+      batch: { sentWhatsAppImage: false },
+    })).rejects.toThrow("oops");
+  });
+
+  it("rejects unknown event names at compile time", () => {
+    const ctx = createPluginContext();
+
+    // @ts-expect-error unknown event name
+    ctx.on("nope", () => Promise.resolve(true));
+    // @ts-expect-error unknown event name
+    ctx.emit("nope", { email: {} as never, batch: {} as never });
+  });
+
+  it("rejects empty event names at runtime", async () => {
+    const ctx = createPluginContext();
+
+    expect(() => (ctx.on as (e: string, h: () => Promise<boolean>) => void)("", () => Promise.resolve(true))).toThrow(
+      "Event name is required.",
+    );
+    await expect((ctx.emit as (e: string, p: unknown) => Promise<boolean>)("", {})).rejects.toThrow(
+      "Event name is required.",
+    );
   });
 });

@@ -1,3 +1,4 @@
+import type { InboundEmail } from "../domain/email.js";
 import type { AppLogger } from "../ports/app-logger.js";
 import type {
   EmailInbox,
@@ -11,7 +12,7 @@ import type {
   WhatsAppPairing,
   WhatsAppSender,
 } from "../ports/whatsapp-sender.js";
-import type { EmailAutomationHandler } from "../use-cases/process-email-automations.js";
+import type { EmailAutomationBatch, EmailAutomationHandler } from "../use-cases/process-email-automations.js";
 import type { WhatsAppEmailThreadStore } from "../use-cases/whatsapp-email-thread-store.js";
 
 /**
@@ -44,6 +45,27 @@ export interface Capabilities {
 
 export type CapabilityName = keyof Capabilities;
 
+/**
+ * Event registry — plugins communicate via named events instead of pushing
+ * into capability arrays. Out-of-repo plugins add their own events by
+ * augmenting this interface:
+ *
+ *     declare module "message-automation-hub/core/plugin-runtime.js" {
+ *       interface EventMap {
+ *         "ynab.transaction.imported": YnabImportPayload;
+ *       }
+ *     }
+ */
+export interface EventMap {
+  "email.received": { email: InboundEmail; batch: EmailAutomationBatch };
+}
+
+export type EventName = keyof EventMap;
+
+export type EventHandler<E extends EventName> = (
+  payload: EventMap[E],
+) => Promise<boolean>;
+
 export type HubPlugin = {
   id: string;
   requires?: CapabilityName[];
@@ -54,10 +76,13 @@ export type PluginContext = {
   provide<K extends CapabilityName>(name: K, capability: Capabilities[K]): void;
   require<K extends CapabilityName>(name: K): Capabilities[K];
   has(name: CapabilityName): boolean;
+  on<E extends EventName>(event: E, handler: EventHandler<E>): void;
+  emit<E extends EventName>(event: E, payload: EventMap[E]): Promise<boolean>;
 };
 
 export function createPluginContext(): PluginContext {
   const capabilities = new Map<string, unknown>();
+  const eventHandlers = new Map<string, Array<(payload: unknown) => Promise<boolean>>>();
 
   return {
     provide<K extends CapabilityName>(name: K, capability: Capabilities[K]): void {
@@ -82,6 +107,26 @@ export function createPluginContext(): PluginContext {
 
     has(name: CapabilityName): boolean {
       return capabilities.has(requiredName(name, "Capability name"));
+    },
+
+    on<E extends EventName>(event: E, handler: EventHandler<E>): void {
+      const key = requiredName(event, "Event name");
+      const list = eventHandlers.get(key) ?? [];
+      list.push(handler as (payload: unknown) => Promise<boolean>);
+      eventHandlers.set(key, list);
+    },
+
+    async emit<E extends EventName>(event: E, payload: EventMap[E]): Promise<boolean> {
+      const key = requiredName(event, "Event name");
+      const list = eventHandlers.get(key) ?? [];
+
+      for (const handler of list) {
+        if (await handler(payload)) {
+          return true;
+        }
+      }
+
+      return false;
     },
   };
 }
