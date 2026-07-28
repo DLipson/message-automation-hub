@@ -67,17 +67,9 @@ async function start(): Promise<void> {
     await logWhatsAppSessionState();
   }
 
-  const emailAutomationHandlers = pluginContext.require(
-    capabilities.emailAutomationHandlers,
-  );
-
-  if (emailAutomationHandlers.length === 0) {
-    return;
-  }
-
   const inbox = pluginContext.require(capabilities.emailInbox);
   const poller = new EmailToWhatsAppPoller(
-    new ProcessEmailAutomations(inbox, emailAutomationHandlers),
+    new ProcessEmailAutomations(inbox, pluginContext),
     inbox,
     config.emailToWhatsapp.pollIntervalMs,
   );

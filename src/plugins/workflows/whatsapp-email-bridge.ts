@@ -9,7 +9,6 @@ export function createWhatsAppEmailBridgePlugin(config: AppConfig): HubPlugin {
     id: "whatsapp-email-bridge",
     requires: [
       capabilities.appLogger,
-      capabilities.emailAutomationHandlers,
       capabilities.emailInbox,
       capabilities.emailSender,
       capabilities.threadStore,
@@ -34,9 +33,7 @@ export function createWhatsAppEmailBridgePlugin(config: AppConfig): HubPlugin {
         return;
       }
 
-      ctx.require(
-        capabilities.emailAutomationHandlers,
-      ).push(new ReplyEmailToWhatsApp(
+      const replyHandler = new ReplyEmailToWhatsApp(
         ctx.require(capabilities.emailInbox),
         ctx.require(capabilities.whatsappChatSender),
         threadStore,
@@ -49,7 +46,9 @@ export function createWhatsAppEmailBridgePlugin(config: AppConfig): HubPlugin {
             to: config.email.to,
           },
         },
-      ));
+      );
+
+      ctx.on("email.received", ({ email, batch }) => replyHandler.handle(email, batch));
     },
   };
 }

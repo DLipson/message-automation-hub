@@ -11,6 +11,7 @@ import { FakeEmailInbox } from "./fakes/fake-email-inbox.js";
 import {
   RequestTransactionCategoryFromEmail,
 } from "../src/automations/transaction-category-request/request-from-email.js";
+import { createPluginContext } from "../src/core/plugin-runtime.js";
 import { ProcessEmailAutomations } from "../src/use-cases/process-email-automations.js";
 
 class FakeWhatsAppSender implements WhatsAppSender {
@@ -45,7 +46,9 @@ describe("RequestTransactionCategoryFromEmail", () => {
       recipientPhoneNumber: "972501234567",
     });
 
-    await new ProcessEmailAutomations(inbox, [request]).processUnread();
+    const ctxpa = createPluginContext();
+    ctxpa.on("email.received", ({ email, batch }) => request.handle(email, batch));
+    await new ProcessEmailAutomations(inbox, ctxpa).processUnread();
 
     expect(whatsapp.sent).toEqual([
       {
@@ -73,7 +76,9 @@ describe("RequestTransactionCategoryFromEmail", () => {
       recipientPhoneNumber: "972501234567",
     });
 
-    await new ProcessEmailAutomations(inbox, [request]).processUnread();
+    const ctxpa = createPluginContext();
+    ctxpa.on("email.received", ({ email, batch }) => request.handle(email, batch));
+    await new ProcessEmailAutomations(inbox, ctxpa).processUnread();
 
     expect(whatsapp.sent).toEqual([]);
     expect(inbox.processed).toEqual([]);
@@ -91,7 +96,9 @@ describe("RequestTransactionCategoryFromEmail", () => {
       recipientPhoneNumber: "972501234567",
     });
 
-    await new ProcessEmailAutomations(inbox, [request]).processUnread();
+    const ctxpa = createPluginContext();
+    ctxpa.on("email.received", ({ email, batch }) => request.handle(email, batch));
+    await new ProcessEmailAutomations(inbox, ctxpa).processUnread();
 
     expect(whatsapp.sent).toEqual([]);
     expect(inbox.processed).toEqual([]);
@@ -132,7 +139,9 @@ describe("RequestTransactionCategoryFromEmail", () => {
       recipientPhoneNumber: "972501234567",
     });
 
-    await new ProcessEmailAutomations(inbox, [request]).processUnread();
+    const ctxpa = createPluginContext();
+    ctxpa.on("email.received", ({ email, batch }) => request.handle(email, batch));
+    await new ProcessEmailAutomations(inbox, ctxpa).processUnread();
 
     expect(inbox.processed).toEqual([laterEmail]);
     expect(inbox.failed).toEqual([failedEmail]);
@@ -155,7 +164,9 @@ describe("RequestTransactionCategoryFromEmail", () => {
       recipientPhoneNumber: "972501234567",
     });
 
-    await new ProcessEmailAutomations(inbox, [request]).processUnread();
+    const ctxpa = createPluginContext();
+    ctxpa.on("email.received", ({ email, batch }) => request.handle(email, batch));
+    await new ProcessEmailAutomations(inbox, ctxpa).processUnread();
 
     expect(whatsapp.sent).toEqual([]);
     expect(inbox.processed).toEqual([]);

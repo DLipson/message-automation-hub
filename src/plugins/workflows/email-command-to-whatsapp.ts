@@ -8,7 +8,6 @@ export function createEmailCommandToWhatsAppPlugin(config: AppConfig): HubPlugin
     id: "email-command-to-whatsapp",
     requires: [
       capabilities.appLogger,
-      capabilities.emailAutomationHandlers,
       capabilities.emailInbox,
       capabilities.emailLabeler,
       capabilities.emailSender,
@@ -21,9 +20,7 @@ export function createEmailCommandToWhatsAppPlugin(config: AppConfig): HubPlugin
       await ctx.require(capabilities.emailLabeler)
         .ensureLabels(["WA/Sent", "WA/Delivered", "WA/Failed"]);
 
-      ctx.require(
-        capabilities.emailAutomationHandlers,
-      ).push(new ForwardEmailToWhatsApp(
+      const handler = new ForwardEmailToWhatsApp(
         ctx.require(capabilities.emailInbox),
         ctx.require(capabilities.emailStatusMarker),
         ctx.require(capabilities.whatsappSender),
@@ -40,7 +37,9 @@ export function createEmailCommandToWhatsAppPlugin(config: AppConfig): HubPlugin
           },
         },
         ctx.require(capabilities.appLogger),
-      ));
+      );
+
+      ctx.on("email.received", ({ email, batch }) => handler.handle(email, batch));
     },
   };
 }

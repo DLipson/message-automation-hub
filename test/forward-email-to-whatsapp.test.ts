@@ -10,6 +10,7 @@ import type {
   WhatsAppSender,
 } from "../src/ports/whatsapp-sender.js";
 import { FakeEmailInbox } from "./fakes/fake-email-inbox.js";
+import { createPluginContext } from "../src/core/plugin-runtime.js";
 import { ProcessEmailAutomations } from "../src/use-cases/process-email-automations.js";
 import { ForwardEmailToWhatsApp } from "../src/use-cases/forward-email-to-whatsapp.js";
 
@@ -57,7 +58,9 @@ describe("ForwardEmailToWhatsApp", () => {
       subjectPrefix: "WA:",
     }, logger);
 
-    await new ProcessEmailAutomations(inbox, [forwarder]).processUnread();
+    const ctxpa = createPluginContext();
+    ctxpa.on("email.received", ({ email, batch }) => forwarder.handle(email, batch));
+    await new ProcessEmailAutomations(inbox, ctxpa).processUnread();
 
     expect(whatsapp.sent).toEqual([
       {
@@ -91,7 +94,9 @@ describe("ForwardEmailToWhatsApp", () => {
       subjectPrefix: "WA:",
     });
 
-    await new ProcessEmailAutomations(inbox, [forwarder]).processUnread();
+    const ctxpa = createPluginContext();
+    ctxpa.on("email.received", ({ email, batch }) => forwarder.handle(email, batch));
+    await new ProcessEmailAutomations(inbox, ctxpa).processUnread();
 
     expect(whatsapp.sent).toEqual([]);
     expect(whatsapp.sentImages).toEqual([
@@ -125,7 +130,9 @@ describe("ForwardEmailToWhatsApp", () => {
       },
     }, logger);
 
-    await new ProcessEmailAutomations(inbox, [forwarder]).processUnread();
+    const ctxpa = createPluginContext();
+    ctxpa.on("email.received", ({ email, batch }) => forwarder.handle(email, batch));
+    await new ProcessEmailAutomations(inbox, ctxpa).processUnread();
 
     expect(whatsapp.sentImages).toEqual([
       {
@@ -177,7 +184,9 @@ describe("ForwardEmailToWhatsApp", () => {
       },
     }, logger);
 
-    await new ProcessEmailAutomations(inbox, [forwarder]).processUnread();
+    const ctxpa = createPluginContext();
+    ctxpa.on("email.received", ({ email, batch }) => forwarder.handle(email, batch));
+    await new ProcessEmailAutomations(inbox, ctxpa).processUnread();
 
     expect(whatsapp.sentImages).toHaveLength(1);
     expect(inbox.processed).toEqual([email]);
@@ -210,7 +219,9 @@ describe("ForwardEmailToWhatsApp", () => {
       },
     });
 
-    await new ProcessEmailAutomations(inbox, [forwarder]).processUnread();
+    const ctxpa = createPluginContext();
+    ctxpa.on("email.received", ({ email, batch }) => forwarder.handle(email, batch));
+    await new ProcessEmailAutomations(inbox, ctxpa).processUnread();
 
     expect(waits).toEqual([240_000]);
     expect(whatsapp.sentImages).toHaveLength(2);
@@ -229,7 +240,9 @@ describe("ForwardEmailToWhatsApp", () => {
       subjectPrefix: "WA:",
     }, logger);
 
-    await new ProcessEmailAutomations(inbox, [forwarder]).processUnread();
+    const ctxpa = createPluginContext();
+    ctxpa.on("email.received", ({ email, batch }) => forwarder.handle(email, batch));
+    await new ProcessEmailAutomations(inbox, ctxpa).processUnread();
 
     expect(whatsapp.sent).toEqual([]);
     expect(whatsapp.sentImages).toEqual([]);
@@ -251,7 +264,9 @@ describe("ForwardEmailToWhatsApp", () => {
       subjectPrefix: "WA:",
     }, logger);
 
-    await new ProcessEmailAutomations(inbox, [forwarder]).processUnread();
+    const ctxpa = createPluginContext();
+    ctxpa.on("email.received", ({ email, batch }) => forwarder.handle(email, batch));
+    await new ProcessEmailAutomations(inbox, ctxpa).processUnread();
 
     expect(whatsapp.sent).toEqual([]);
     expect(whatsapp.sentImages).toEqual([]);
@@ -283,7 +298,9 @@ describe("ForwardEmailToWhatsApp", () => {
       },
     });
 
-    await new ProcessEmailAutomations(inbox, [forwarder]).processUnread();
+    const ctxpa = createPluginContext();
+    ctxpa.on("email.received", ({ email, batch }) => forwarder.handle(email, batch));
+    await new ProcessEmailAutomations(inbox, ctxpa).processUnread();
 
     expect(inbox.processed).toEqual([email]);
     expect(inbox.failed).toEqual([email]);

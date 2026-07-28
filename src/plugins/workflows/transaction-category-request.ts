@@ -8,7 +8,6 @@ export function createTransactionCategoryRequestPlugin(config: AppConfig): HubPl
     id: "transaction-category-request",
     requires: [
       capabilities.appLogger,
-      capabilities.emailAutomationHandlers,
       capabilities.emailInbox,
       capabilities.emailLabeler,
       capabilities.whatsappSender,
@@ -17,14 +16,14 @@ export function createTransactionCategoryRequestPlugin(config: AppConfig): HubPl
       await ctx.require(capabilities.emailLabeler)
         .ensureLabels(["WA/Failed"]);
 
-      ctx.require(
-        capabilities.emailAutomationHandlers,
-      ).push(new RequestTransactionCategoryFromEmail(
+      const handler = new RequestTransactionCategoryFromEmail(
         ctx.require(capabilities.emailInbox),
         ctx.require(capabilities.whatsappSender),
         config.transactionCategoryRequest,
         ctx.require(capabilities.appLogger),
-      ));
+      );
+
+      ctx.on("email.received", ({ email, batch }) => handler.handle(email, batch));
     },
   };
 }

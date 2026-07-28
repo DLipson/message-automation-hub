@@ -1,5 +1,6 @@
 import type { InboundEmail } from "../domain/email.js";
 import { formatError } from "../errors.js";
+import type { PluginContext } from "../core/plugin-runtime.js";
 import type { EmailInbox, EmailStatusMarker } from "../ports/email-inbox.js";
 
 export type EmailAutomationBatch = {
@@ -65,7 +66,7 @@ export function parseSubjectCommand(subject: string, prefix: string): string | n
 export class ProcessEmailAutomations {
   constructor(
     private readonly inbox: EmailInbox,
-    private readonly handlers: EmailAutomationHandler[],
+    private readonly ctx: PluginContext,
   ) {}
 
   async processUnread(): Promise<void> {
@@ -75,11 +76,7 @@ export class ProcessEmailAutomations {
 
     for (const email of emails) {
       try {
-        for (const handler of this.handlers) {
-          if (await handler.handle(email, batch)) {
-            break;
-          }
-        }
+        await this.ctx.emit("email.received", { email, batch });
       } catch (error) {
         console.error("Email automation failed for email " + email.id + ": " + formatError(error));
         await this.markFailed(email);

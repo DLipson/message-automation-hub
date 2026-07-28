@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import type { InboundEmail } from "../src/domain/email.js";
 import type { AppConfig } from "../src/config.js";
 import type { ContactRef, InboundMessage } from "../src/domain/message.js";
 import type { EmailInbox } from "../src/ports/email-inbox.js";
@@ -18,7 +19,6 @@ import { createPluginContext, registerPlugins } from "../src/core/plugin-runtime
 import { capabilities } from "../src/plugins/capabilities.js";
 import { createEmailCommandToWhatsAppPlugin } from "../src/plugins/workflows/email-command-to-whatsapp.js";
 import { createWhatsAppEmailBridgePlugin } from "../src/plugins/workflows/whatsapp-email-bridge.js";
-import type { EmailAutomationHandler } from "../src/use-cases/process-email-automations.js";
 import type {
   WhatsAppEmailThread,
   WhatsAppEmailThreadStore,
@@ -99,29 +99,40 @@ describe("bundled plugins", () => {
   it("registers the WhatsApp email bridge as one workflow with inbound and reply legs", async () => {
     const inbound = new FakeInboundChannel();
     const emailSender = new FakeEmailSender();
-    const handlers: EmailAutomationHandler[] = [];
+    const chatSender = new FakeWhatsAppChatSender();
     const ctx = createPluginContext();
     ctx.provide(capabilities.appLogger, silentLogger);
     ctx.provide(capabilities.emailSender, emailSender);
     ctx.provide(capabilities.emailInbox, fakeInbox);
     ctx.provide(capabilities.whatsappInbound, inbound);
-    ctx.provide(capabilities.whatsappChatSender, new FakeWhatsAppChatSender());
+    ctx.provide(capabilities.whatsappChatSender, chatSender);
     ctx.provide(capabilities.threadStore, new FakeThreadStore());
-    ctx.provide(capabilities.emailAutomationHandlers, handlers);
 
     await registerPlugins([createWhatsAppEmailBridgePlugin(config())], ctx);
 
     expect(inbound.handlers).toHaveLength(1);
-    expect(handlers).toHaveLength(1);
 
     await inbound.handlers[0]?.(whatsappMessage());
 
     expect(emailSender.sent[0]?.subject).toBe("WhatsApp thread [wa:thread-token]");
+
+    const handled = await ctx.emit("email.received", {
+      email: {
+        id: "reply-1",
+        subject: "Re: WhatsApp thread [wa:thread-token]",
+        text: "Sure, I'll do that.",
+        receivedAt: new Date("2026-07-12T10:00:00.000Z"),
+      },
+      batch: { sentWhatsAppImage: false },
+    });
+    expect(handled).toBe(true);
+    expect(chatSender.sent).toHaveLength(1);
+    expect(chatSender.sent[0]?.chatId).toBe("chat-1");
+    expect(chatSender.sent[0]?.text).toBe("Sure, I'll do that.");
   });
 
   it("keeps the bridge inbound leg when email-to-WhatsApp polling is disabled", async () => {
     const inbound = new FakeInboundChannel();
-    const handlers: EmailAutomationHandler[] = [];
     const ctx = createPluginContext();
     ctx.provide(capabilities.appLogger, silentLogger);
     ctx.provide(capabilities.emailSender, new FakeEmailSender());
@@ -129,7 +140,6 @@ describe("bundled plugins", () => {
     ctx.provide(capabilities.whatsappInbound, inbound);
     ctx.provide(capabilities.whatsappChatSender, new FakeWhatsAppChatSender());
     ctx.provide(capabilities.threadStore, new FakeThreadStore());
-    ctx.provide(capabilities.emailAutomationHandlers, handlers);
 
     await registerPlugins([
       createWhatsAppEmailBridgePlugin(config({
@@ -138,25 +148,46 @@ describe("bundled plugins", () => {
     ], ctx);
 
     expect(inbound.handlers).toHaveLength(1);
-    expect(handlers).toHaveLength(0);
+
+    const handled = await ctx.emit("email.received", {
+      email: {
+        id: "reply-2",
+        subject: "Re: WhatsApp thread [wa:thread-token]",
+        text: "Reply",
+        receivedAt: new Date(),
+      },
+      batch: { sentWhatsAppImage: false },
+    });
+    expect(handled).toBe(false);
   });
 
   it("prepares WA command feedback labels before registering the email command workflow", async () => {
     const inbox = new FakeCommandInbox();
-    const handlers: EmailAutomationHandler[] = [];
+    const sender = new FakeWhatsAppSender();
     const ctx = createPluginContext();
     ctx.provide(capabilities.appLogger, silentLogger);
     ctx.provide(capabilities.emailSender, new FakeEmailSender());
     ctx.provide(capabilities.emailInbox, inbox);
     ctx.provide(capabilities.emailLabeler, inbox);
     ctx.provide(capabilities.emailStatusMarker, inbox);
-    ctx.provide(capabilities.whatsappSender, new FakeWhatsAppSender());
-    ctx.provide(capabilities.emailAutomationHandlers, handlers);
+    ctx.provide(capabilities.whatsappSender, sender);
 
     await registerPlugins([createEmailCommandToWhatsAppPlugin(config())], ctx);
 
     expect(inbox.labels).toEqual([["WA/Sent", "WA/Delivered", "WA/Failed"]]);
-    expect(handlers).toHaveLength(1);
+
+    const handled = await ctx.emit("email.received", {
+      email: {
+        id: "cmd-1",
+        subject: "WA: 972501234567",
+        text: "Hello",
+        receivedAt: new Date(),
+      },
+      batch: { sentWhatsAppImage: false },
+    });
+    expect(handled).toBe(true);
+    expect(sender.sent).toHaveLength(1);
+    expect(sender.sent[0]?.phoneNumber).toBe("972501234567");
   });
 
   it("fails fast when the inbox cannot create labels", async () => {
@@ -165,7 +196,6 @@ describe("bundled plugins", () => {
     ctx.provide(capabilities.emailSender, new FakeEmailSender());
     ctx.provide(capabilities.emailInbox, fakeInbox);
     ctx.provide(capabilities.whatsappSender, new FakeWhatsAppSender());
-    ctx.provide(capabilities.emailAutomationHandlers, []);
 
     await expect(
       registerPlugins([createEmailCommandToWhatsAppPlugin(config())], ctx),

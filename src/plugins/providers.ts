@@ -37,10 +37,6 @@ export function createEmailPlugin(config: AppConfig, env: NodeJS.ProcessEnv = pr
       ctx.provide(capabilities.emailInbox, inbox);
       ctx.provide(capabilities.emailStatusMarker, inbox);
       ctx.provide(capabilities.emailLabeler, inbox);
-      ctx.provide(
-        capabilities.emailAutomationHandlers,
-        [],
-      );
     },
   };
 }
