@@ -3,8 +3,6 @@ import {
   createPluginContext,
   registerPlugins,
   type CapabilityName,
-  type EventHandler,
-  type EventName,
   type HubPlugin,
 } from "../src/core/plugin-runtime.js";
 

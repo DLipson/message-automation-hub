@@ -1,9 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { InboundEmail } from "../src/domain/email.js";
-import {
-  createPluginContext,
-  type EventHandler,
-} from "../src/core/plugin-runtime.js";
+import { createPluginContext } from "../src/core/plugin-runtime.js";
 import type {
   EmailAutomationBatch,
   EmailAutomationHandler,
