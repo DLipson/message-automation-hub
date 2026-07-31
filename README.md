@@ -199,6 +199,24 @@ npm run build
 npm audit
 ```
 
+## Docker
+
+Run the bot in a single container (WhatsApp session, thread data, and secrets are persisted):
+
+```bash
+# 1. Create config + secrets
+cp .env.example .env
+mkdir -p secrets
+echo '{"message-automation-hub/smtp-password": "your-app-password"}' > secrets/secrets.json
+
+# 2. Build and start
+docker compose up -d
+```
+
+Edit `.env` for your email account, recipients, and feature flags. The WhatsApp session persists in the `whatsapp-session` volume; email thread state and the IMAP checkpoint persist in the container's `/data` volume. The bot control server (pairing-code endpoint) is exposed on `127.0.0.1:8788`.
+
+The image is multi-stage: it installs puppeteer's Chromium during `npm ci`, compiles core to `dist/`, and installs Chromium shared libraries plus ffmpeg (for WhatsApp media) in the runtime stage. Rebuild with `docker compose up -d --build`.
+
 ## Cloud VM
 
 See [docs/cloud-ubuntu.md](docs/cloud-ubuntu.md) for running on an Ubuntu VM with file-backed secrets, SSH-tunneled GUI access, and systemd.

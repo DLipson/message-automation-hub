@@ -1,0 +1,22 @@
+services:
+  hub:
+    build: .
+    container_name: message-automation-hub
+    restart: unless-stopped
+    env_file:
+      - path: .env
+        required: false
+    environment:
+      MESSAGE_HUB_SECRET_STORE: file
+      MESSAGE_HUB_SECRET_FILE: /run/secrets/message-hub/secrets.json
+      EMAIL_THREAD_STORE_FILE: /data/thread-store.json
+      IMAP_CHECKPOINT_FILE: /data/imap-checkpoint.json
+      MESSAGE_HUB_BOT_CONTROL_PORT: 8788
+    ports:
+      - "127.0.0.1:8788:8788"
+    volumes:
+      - whatsapp-session:/app/.wwebjs_auth
+      - ./secrets:/run/secrets/message-hub:ro
+
+volumes:
+  whatsapp-session:
