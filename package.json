@@ -3,31 +3,27 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
+  "workspaces": [
+    "core",
+    "plugins"
+  ],
   "scripts": {
-    "dev": "tsx src/index.ts",
-    "settings": "tsx src/settings/settings-server.ts",
-    "start": "node dist/index.js",
-    "start:settings": "node dist/settings/settings-server.js",
-    "secret:set:smtp": "tsx src/tools/set-smtp-password.ts",
-    "typecheck": "tsc --noEmit",
-    "build": "tsc -p tsconfig.build.json",
-    "test": "vitest run"
+    "dev": "npm run dev -w core",
+    "settings": "npm run settings -w core",
+    "start": "npm run start -w core",
+    "start:settings": "npm run start:settings -w core",
+    "secret:set:smtp": "npm run secret:set:smtp -w core",
+    "typecheck": "npm run typecheck -w core && npm run typecheck -w plugins",
+    "build": "npm run build -w core",
+    "test": "npm run test -w core && npm run test -w plugins",
+    "typecheck:core": "npm run typecheck -w core",
+    "typecheck:plugins": "npm run typecheck -w plugins",
+    "test:core": "npm run test -w core",
+    "test:plugins": "npm run test -w plugins"
   },
-  "dependencies": {
-    "imapflow": "^1.4.2",
-    "mailparser": "^3.9.11",
-    "nodemailer": "^9.0.1",
-    "whatsapp-web.js": "^1.26.0"
-  },
+  "dependencies": {},
   "devDependencies": {
-    "@types/mailparser": "^3.4.6",
-    "@types/node": "^22.10.2",
-    "@types/nodemailer": "^6.4.17",
-    "tsx": "^4.19.2",
     "typescript": "^5.7.2",
     "vitest": "^2.1.8"
-  },
-  "optionalDependencies": {
-    "keytar": "^7.9.0"
   }
 }

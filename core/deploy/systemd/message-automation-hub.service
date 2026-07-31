@@ -1,0 +1,29 @@
+[Unit]
+Description=Message Automation Hub
+After=network-online.target
+Wants=network-online.target
+# Bad credentials fail immediately with no backoff, so without a start limit the
+# unit restarts every RestartSec forever, hammering the mail server and burying
+# the cause in the journal. Give up after 5 tries in 10 minutes and sit in
+# "failed", which is the state that actually shows up in systemctl status.
+StartLimitIntervalSec=600
+StartLimitBurst=5
+
+[Service]
+Type=simple
+WorkingDirectory=/opt/message-automation-hub
+Environment=NODE_ENV=production
+Environment=MESSAGE_HUB_ENV_FILE=/home/opc/secrets/message-automation-hub/.env
+Environment=MESSAGE_HUB_SECRET_STORE=file
+Environment=MESSAGE_HUB_SECRET_FILE=/home/opc/secrets/message-automation-hub/secrets.json
+Environment=PUPPETEER_CACHE_DIR=/home/opc/.cache/puppeteer
+EnvironmentFile=-/etc/message-automation-hub/control.env
+ExecStart=/usr/bin/npm run start
+Restart=on-failure
+RestartSec=60
+User=opc
+Group=opc
+
+[Install]
+WantedBy=multi-user.target
+
