@@ -1,5 +1,20 @@
 # Logs
 
+## 2026-07-31 - Split monorepo into core + plugins workspaces
+
+- **Goal** - Restructure the single package into two independent npm workspaces (`core/`, `plugins/`) as the first phase toward a separate plugins repo and dockerization. Plugin code no longer imports runtime code from core; plugins import types only.
+- **Plugin contract** - `core/src/api/index.ts` defines `PluginContext` (provide/require/has/on/emit/hasListeners + `config`), `HubPlugin` (`{ name, onLoad(ctx) }`), capability name constants, and re-exports the domain/port types plugins need. The previous `{ id, requires, register }` shape and `requires` validation were dropped.
+- **Internal implementation** - `core/src/core/plugin-runtime.ts` keeps the strongly-typed `Capabilities`/`EventMap`, now with: `registerPlugins(plugins, contextOrConfig?)` accepting either a pre-built context (host provides capabilities, then loads plugins) or a config object (creates a fresh context). `ctx.formatError` returns the short message (for notification bodies), NOT the full stack — the full-stack `formatError` stays in `core/src/errors.ts` and `plugins/src/utils.ts`.
+- **Plugin-side standalone-ness** - `plugins/src/capabilities.ts` and `plugins/src/utils.ts` are local copies of capability names and pure helpers (`formatError`, `parseSubjectCommand`, `isImageAttachment`); the plugin runtime never imports these from core.
+- **Bugs fixed during the split**
+  - `registerPlugins` silently dropped the provided context (created a fresh empty one), so every capability lookup threw at `onLoad`. Root cause: signature took config, callers passed a context. Fix: accept either.
+  - `PluginContext.on` in the public API typed handlers as `void | Promise<void>`, but the event loop returns `boolean` to signal handled/stop — 10 typecheck failures. Fixed the API type to `boolean | Promise<boolean>`.
+  - `require<T>` returned `unknown` without explicit type args (API is loosely typed by design); all call sites in core and plugins now pass the port type explicitly.
+  - `@message-automation/core/api/index.js` didn't resolve because core had no `exports` map; added one pointing at `./src/api/index.ts` (all plugin imports are `import type`, so only tsc needs it).
+  - npm rejected `workspace:*` devDep (`EUNSUPPORTEDPROTOCOL`); switched to `^0.1.0`, npm auto-links the workspace.
+- **Verification** - 135 core + 21 plugin tests pass, `tsc --noEmit` clean in both, `tsc -p tsconfig.build.json` (core) clean.
+- **Left over** - Root `src/` and `test/` still exist as stale copies (fully superseded by `core/` + `plugins/`; verified by directory diff). Deletion deferred per user request to preserve this branch's work — git history keeps everything regardless, so a cleanup commit is safe later.
+
 ## 2026-07-26 - IMAP connection storm, restart loop, and leaked sockets
 
 Three defects stacked into one outage: the bot crash-looped 37 times against Gmail with `3 NO [ALERT] Too many simultaneous connections`, never reaching a successful login.
