@@ -158,6 +158,23 @@ jobs:
               npx puppeteer browsers install chrome
           fi
 
+          # One-time: enable WhatsApp group forwarding on the VM. Remove this block
+          # from master once deployed; the branch one-time-env-set is temporary.
+          env_file="/home/\${service_user}/secrets/message-automation-hub/.env"
+          key="WHATSAPP_FORWARD_GROUPS_ENABLED"
+          value="true"
+          if [ -f "\$env_file" ]; then
+            tmp_file="\$(mktemp)"
+            grep -vE "^\${key}=" "\$env_file" > "\$tmp_file" || true
+            printf '%s=%s\n' "\$key" "\$value" >> "\$tmp_file"
+            mv "\$tmp_file" "\$env_file"
+            chown "\${service_user}:\${service_user}" "\$env_file" 2>/dev/null || true
+            chmod 600 "\$env_file" 2>/dev/null || true
+            printf 'One-time: set %s=%s in %s\n' "\$key" "\$value" "\$env_file"
+          else
+            printf 'One-time env set skipped: %s not found\n' "\$env_file" >&2
+          fi
+
           systemctl reset-failed "\$service" || true
           systemctl start "\$service"
           sleep 20
