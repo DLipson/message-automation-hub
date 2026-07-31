@@ -13,7 +13,7 @@
   - `@message-automation/core/api/index.js` didn't resolve because core had no `exports` map; added one pointing at `./src/api/index.ts` (all plugin imports are `import type`, so only tsc needs it).
   - npm rejected `workspace:*` devDep (`EUNSUPPORTEDPROTOCOL`); switched to `^0.1.0`, npm auto-links the workspace.
 - **Verification** - 135 core + 21 plugin tests pass, `tsc --noEmit` clean in both, `tsc -p tsconfig.build.json` (core) clean.
-- **Left over** - Root `src/` and `test/` still exist as stale copies (fully superseded by `core/` + `plugins/`; verified by directory diff). Deletion deferred per user request to preserve this branch's work — git history keeps everything regardless, so a cleanup commit is safe later.
+- **Cleanup after** - Root `src/` and `test/` (stale copies fully superseded by `core/` + `plugins/`) were removed in a follow-up commit. Also made the branch switch: the split work moved from `event-system` to `core-plugins-split`; `event-system` was reset back to before the split.
 
 ## 2026-07-26 - IMAP connection storm, restart loop, and leaked sockets
 
