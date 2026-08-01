@@ -5,11 +5,11 @@
   "type": "module",
   "exports": {
     "./api/index.js": {
-      "types": "./dist/api/index.d.ts",
+      "types": "./src/api/index.ts",
       "default": "./dist/api/index.js"
     },
     "./core/plugin-runtime.js": {
-      "types": "./dist/core/plugin-runtime.d.ts",
+      "types": "./src/core/plugin-runtime.ts",
       "default": "./dist/core/plugin-runtime.js"
     }
   },
