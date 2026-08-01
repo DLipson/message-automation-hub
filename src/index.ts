@@ -5,23 +5,20 @@ import { loadConfig, loadRuntimeEnv, loadSmtpPassword } from "./config.js";
 import { registerPlugins } from "./core/plugin-runtime.js";
 import { EmailToWhatsAppPoller } from "./email-to-whatsapp-poller.js";
 import { errorMessage } from "./errors.js";
-import { capabilities } from "./plugins/capabilities.js";
+import { capabilities } from "./api/index.js";
 import {
   createEmailPlugin,
   createLoggerPlugin,
   createThreadStorePlugin,
   createWhatsAppWebPlugin,
 } from "./plugins/providers.js";
-import { createEmailCommandToWhatsAppPlugin } from "./plugins/workflows/email-command-to-whatsapp.js";
-import { createTransactionCategoryRequestPlugin } from "./plugins/workflows/transaction-category-request.js";
 import { createWhatsAppEmailBridgePlugin } from "./plugins/workflows/whatsapp-email-bridge.js";
 import type { WhatsAppPairing } from "./ports/whatsapp-sender.js";
+import type { InboundChannel } from "./ports/inbound-channel.js";
+import type { EmailInbox } from "./ports/email-inbox.js";
 import { reportStartupFailure } from "./startup.js";
 import { ProcessEmailAutomations } from "./use-cases/process-email-automations.js";
 
-// Everything here runs under top-level await, so an uncaught failure surfaces as an
-// unhandled rejection: a bare stack that says neither "startup" nor which dependency
-// refused us. Exit deliberately with one line that does.
 try {
   await start();
 } catch (error) {
@@ -42,24 +39,14 @@ async function start(): Promise<void> {
     createThreadStorePlugin(config, process.env),
     createWhatsAppWebPlugin(config),
     createWhatsAppEmailBridgePlugin(config),
-    ...(config.emailToWhatsapp.enabled
-      ? [createEmailCommandToWhatsAppPlugin(config)]
-      : []),
-    ...(config.transactionCategoryRequest.enabled
-      ? [createTransactionCategoryRequestPlugin(config)]
-      : []),
-  ]);
-  const whatsapp = pluginContext.require(capabilities.whatsappInbound);
+  ], config as Record<string, unknown>);
+  const whatsapp = pluginContext.require<InboundChannel>(capabilities.whatsappInbound);
 
   const whatsappStart = whatsapp.start();
   startControlServer(
-    pluginContext.require(capabilities.whatsappPairing),
+    pluginContext.require<WhatsAppPairing>(capabilities.whatsappPairing),
     process.env,
   );
-  // ponytail: a WhatsApp start failure used to reject at top level and kill the process, so systemd
-  // restarted us every 10s and email automation went down with it. Log and keep serving instead;
-  // the control server stays up so a new pairing code can be requested. Deliberately narrower than
-  // the startup catch above: this one continues, that one exits.
   try {
     await whatsappStart;
   } catch (error) {
@@ -67,17 +54,13 @@ async function start(): Promise<void> {
     await logWhatsAppSessionState();
   }
 
-  const emailAutomationHandlers = pluginContext.require(
-    capabilities.emailAutomationHandlers,
-  );
-
-  if (emailAutomationHandlers.length === 0) {
+  if (!pluginContext.hasListeners("email.received")) {
     return;
   }
 
-  const inbox = pluginContext.require(capabilities.emailInbox);
+  const inbox = pluginContext.require<EmailInbox>(capabilities.emailInbox);
   const poller = new EmailToWhatsAppPoller(
-    new ProcessEmailAutomations(inbox, emailAutomationHandlers),
+    new ProcessEmailAutomations(inbox, pluginContext),
     inbox,
     config.emailToWhatsapp.pollIntervalMs,
   );
@@ -86,8 +69,6 @@ async function start(): Promise<void> {
   console.log("Email automation polling is enabled.");
 }
 
-// LocalAuth is constructed without a dataPath, so it stores the session under the working directory.
-// A crash loop can leave this profile torn or locked, which surfaces as an opaque puppeteer error.
 async function logWhatsAppSessionState(): Promise<void> {
   const sessionDir = "./.wwebjs_auth";
   try {

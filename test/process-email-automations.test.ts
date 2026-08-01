@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { InboundEmail } from "../src/domain/email.js";
+import { createPluginContext } from "../src/core/plugin-runtime.js";
 import type {
   EmailAutomationBatch,
   EmailAutomationHandler,
@@ -25,14 +26,16 @@ describe("ProcessEmailAutomations", () => {
   it("passes unread emails to handlers until one handles the email", async () => {
     const email = emailCommand({ subject: "TXCAT: request" });
     const inbox = new FakeEmailInbox([email]);
+    const ctx = createPluginContext();
     const first = new RecordingHandler(false);
     const second = new RecordingHandler(true);
     const third = new RecordingHandler(true);
-    const processor = new ProcessEmailAutomations(inbox, [
-      first,
-      second,
-      third,
-    ]);
+
+    ctx.on("email.received", ({ email: e, batch }) => first.handle(e, batch));
+    ctx.on("email.received", ({ email: e, batch }) => second.handle(e, batch));
+    ctx.on("email.received", ({ email: e, batch }) => third.handle(e, batch));
+
+    const processor = new ProcessEmailAutomations(inbox, ctx);
 
     await processor.processUnread();
 
@@ -46,19 +49,19 @@ describe("ProcessEmailAutomations", () => {
     const failedEmail = emailCommand({ id: "failed" });
     const laterEmail = emailCommand({ id: "later" });
     const inbox = new FakeEmailInbox([failedEmail, laterEmail]);
+    const ctx = createPluginContext();
     const handled: InboundEmail[] = [];
-    const handler: EmailAutomationHandler = {
-      async handle(email) {
-        if (email.id === "failed") {
-          throw new Error("send failed");
-        }
 
-        handled.push(email);
-        return true;
-      },
-    };
+    ctx.on("email.received", async ({ email: e }) => {
+      if (e.id === "failed") {
+        throw new Error("send failed");
+      }
 
-    await new ProcessEmailAutomations(inbox, [handler]).processUnread();
+      handled.push(e);
+      return true;
+    });
+
+    await new ProcessEmailAutomations(inbox, ctx).processUnread();
 
     expect(inbox.failed).toEqual([failedEmail]);
     expect(handled).toEqual([laterEmail]);

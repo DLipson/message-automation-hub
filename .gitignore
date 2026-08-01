@@ -8,3 +8,6 @@ vm-scripts/
 gh-deploy-job-*.zip
 /CONTEXT.md
 session-ses_*.md
+/Dockerfile.netfree
+/docker-compose.override.yml
+/netfree-ca.crt

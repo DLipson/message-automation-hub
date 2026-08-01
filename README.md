@@ -12,6 +12,14 @@ Current features:
 
 This project uses unofficial WhatsApp Web automation. Use a WhatsApp number you can afford to lose.
 
+## Architecture
+
+This repo is `@message-automation/core` — the host runtime: plugin system, WhatsApp/email providers, the WhatsApp↔email bridge, settings GUI, and deployment files.
+
+Optional workflows (email commands to WhatsApp, transaction category requests) live in the separate `message-automation-plugins` repository.
+
+Plugins implement `{ name, onLoad(ctx) }` and receive capabilities, events, and config through the context. Plugin code imports only types from core via `@message-automation/core/api/index.js` — never core runtime modules.
+
 ## Setup
 
 1. Install dependencies:
@@ -189,6 +197,24 @@ npm test
 npm run build
 npm audit
 ```
+
+## Docker
+
+Run the bot in a single container (WhatsApp session, thread data, and secrets are persisted):
+
+```bash
+# 1. Create config + secrets
+cp .env.example .env
+mkdir -p secrets
+echo '{"message-automation-hub/smtp-password": "your-app-password"}' > secrets/secrets.json
+
+# 2. Build and start
+docker compose up -d
+```
+
+Edit `.env` for your email account, recipients, and feature flags. The WhatsApp session persists in the `whatsapp-session` volume; email thread state and the IMAP checkpoint persist in the container's `/data` volume. The bot control server (pairing-code endpoint) is exposed on `127.0.0.1:8788`.
+
+The image is multi-stage: it installs puppeteer's Chromium during `npm ci`, compiles core to `dist/`, and installs Chromium shared libraries plus ffmpeg (for WhatsApp media) in the runtime stage. Rebuild with `docker compose up -d --build`.
 
 ## Cloud VM
 
