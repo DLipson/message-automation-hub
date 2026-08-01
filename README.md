@@ -14,10 +14,9 @@ This project uses unofficial WhatsApp Web automation. Use a WhatsApp number you 
 
 ## Architecture
 
-The repo is a monorepo of two npm workspaces:
+This repo is `@message-automation/core` — the host runtime: plugin system, WhatsApp/email providers, the WhatsApp↔email bridge, settings GUI, and deployment files.
 
-- `core/` (`@message-automation/core`) — the host runtime: plugin system, WhatsApp/email providers, the WhatsApp↔email bridge, settings GUI, and deployment files.
-- `plugins/` (`@message-automation/plugins`) — optional bundled workflows (email commands to WhatsApp, transaction category requests) built on the core plugin API.
+Optional workflows (email commands to WhatsApp, transaction category requests) live in the separate `message-automation-plugins` repository.
 
 Plugins implement `{ name, onLoad(ctx) }` and receive capabilities, events, and config through the context. Plugin code imports only types from core via `@message-automation/core/api/index.js` — never core runtime modules.
 

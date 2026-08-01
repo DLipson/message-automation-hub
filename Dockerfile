@@ -1,20 +1,17 @@
 # syntax=docker/dockerfile:1
 
-# Build stage: install all workspace deps (including puppeteer's Chromium)
-# and compile core to dist/.
+# Build stage: install deps (including puppeteer's Chromium) and compile to dist/.
 FROM node:22-slim AS build
 WORKDIR /app
 ENV PUPPETEER_CACHE_DIR=/opt/puppeteer-cache
 
 COPY package.json package-lock.json ./
-COPY core/package.json core/package.json
-COPY plugins/package.json plugins/package.json
 RUN npm ci
 
-COPY core/tsconfig.json core/tsconfig.json
-COPY core/tsconfig.build.json core/tsconfig.build.json
-COPY core/src core/src
-RUN npm run build -w core
+COPY tsconfig.json tsconfig.json
+COPY tsconfig.build.json tsconfig.build.json
+COPY src src
+RUN npm run build
 
 # Runtime stage: Chromium shared libraries + built output.
 FROM node:22-slim AS runtime
@@ -44,12 +41,11 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 WORKDIR /app
 COPY --from=build /app/package.json ./package.json
 COPY --from=build /app/node_modules ./node_modules
-COPY --from=build /app/core/package.json ./core/package.json
-COPY --from=build /app/core/dist ./core/dist
+COPY --from=build /app/dist ./dist
 COPY --from=build /opt/puppeteer-cache /opt/puppeteer-cache
 
 VOLUME ["/app/.wwebjs_auth", "/data"]
 
 EXPOSE 8788
 
-CMD ["node", "core/dist/index.js"]
+CMD ["node", "dist/index.js"]
