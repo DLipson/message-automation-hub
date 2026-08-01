@@ -5,8 +5,12 @@
   "type": "module",
   "exports": {
     "./api/index.js": {
-      "types": "./src/api/index.ts",
-      "default": "./src/api/index.ts"
+      "types": "./dist/api/index.d.ts",
+      "default": "./dist/api/index.js"
+    },
+    "./core/plugin-runtime.js": {
+      "types": "./dist/core/plugin-runtime.d.ts",
+      "default": "./dist/core/plugin-runtime.js"
     }
   },
   "scripts": {
@@ -17,6 +21,7 @@
     "secret:set:smtp": "tsx src/tools/set-smtp-password.ts",
     "typecheck": "tsc --noEmit",
     "build": "tsc -p tsconfig.build.json",
+    "prepare": "npm run build",
     "test": "vitest run"
   },
   "dependencies": {
