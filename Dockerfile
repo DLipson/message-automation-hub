@@ -6,11 +6,11 @@ WORKDIR /app
 ENV PUPPETEER_CACHE_DIR=/opt/puppeteer-cache
 
 COPY package.json package-lock.json ./
-RUN npm ci
-
 COPY tsconfig.json tsconfig.json
 COPY tsconfig.build.json tsconfig.build.json
 COPY src src
+RUN npm ci
+
 RUN npm run build
 
 # Runtime stage: Chromium shared libraries + built output.
