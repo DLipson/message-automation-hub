@@ -1,5 +1,16 @@
 # Logs
 
+## 2026-08-02 - Split repo into two independent GitHub repositories
+
+- **Goal** - Complete the split started 2026-07-31: core (`message-automation-hub`, now `@message-automation/core` at the repo root) and plugins (`message-automation-plugins`, new public repo) are now two standalone repos. Plugins depend on core for **types only** via a git dependency, like `@types/vscode`.
+- **Repo restructure** - `git mv core/src ./src`, `git mv core/test ./test`; root `deploy/docs/scripts/.github/tsconfig*` already duplicated core's copies, so `core/` and `plugins/` were removed. Root `package.json` is now `@message-automation/core` (single package, no workspaces), lockfile regenerated. `core-plugins-split` was merged into `master` (fast-forwardable after checking the 2 master-only commits were a self-cancelling add+revert) and the branch deleted.
+- **Plugins repo** - Created via `gh repo create DLipson/message-automation-plugins --public`, history extracted with `git subtree split --prefix=plugins -b plugins-split`, pushed as `master`. `package.json` git-depends on `@message-automation/core: github:DLipson/message-automation-hub`.
+- **Runtime-free test harness** - `plugins/test/helpers/run-with-email-handler.ts` no longer imports core runtime (`createPluginContext` + `ProcessEmailAutomations`); it is a local loop (fetchUnread → `handler.handle(email, batch)`, catches throws → `markFailed` if the inbox is an `EmailStatusMarker`). `plugins/test/helpers/fake-plugin-runtime.ts` is a minimal local `createPluginContext`/`registerPlugins` implementing just `provide`/`require`/`has`/`on`/`emit`/`hasListeners`/`config`/`formatError`/`parseSubjectCommand`. `bundled-plugins.test.ts` rewritten to drop the bridge legs (core covers the bridge in its own tests); it now registers only the two plugins-repo workflows.
+- **Git-dep build bug (fixed)** - core's `prepare` script (`npm run build`) fails inside the plugins repo because npm does not install a git dependency's devDependencies (`@types/mailparser`, `@types/nodemailer`). Fix: core's `package.json` `exports` now points the `types` condition at the source files (`./src/api/index.ts`, `./src/core/plugin-runtime.ts`) instead of `./dist/**/*.d.ts`. Plugins are `import type` only, so tsc resolves straight from source and no build is needed. The `default` conditions still point at `dist` for runtime consumers.
+- **Gotcha** - npm caches git dependencies; after pushing a fix to core, clear with `npm cache clean --force` plus deleting `node_modules`/`package-lock.json` or the stale core checkout persists.
+- **Verification** - core: 135 tests pass, `tsc --noEmit` clean. plugins: 19 tests pass, `tsc --noEmit` clean. Both pushed to GitHub.
+- **Pending** - Smoke-test `docker compose build` with the new flat layout; the local NetFree override files (`Dockerfile.netfree`, `docker-compose.override.yml`, `netfree-ca.crt`) are gitignored and still in place.
+
 ## 2026-07-31 - Split monorepo into core + plugins workspaces
 
 - **Goal** - Restructure the single package into two independent npm workspaces (`core/`, `plugins/`) as the first phase toward a separate plugins repo and dockerization. Plugin code no longer imports runtime code from core; plugins import types only.
