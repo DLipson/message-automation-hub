@@ -286,6 +286,12 @@ jobs:
           git checkout --force -B stage "\$target_commit"
           git reset --hard "\$target_commit"
 
+          if ! command -v docker >/dev/null 2>&1; then
+            printf '[%s] Docker not found; installing.\n' "\$(date --iso-8601=seconds)"
+            command -v curl >/dev/null 2>&1 || { apt-get update && apt-get install -y curl; }
+            curl -fsSL https://get.docker.com | sh
+          fi
+
           mkdir -p secrets
           if [ ! -f .env ]; then
             cp .env.example .env
