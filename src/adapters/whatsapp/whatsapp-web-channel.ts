@@ -8,6 +8,7 @@ import type { EmailSender } from "../../ports/email-sender.js";
 import type {
   InboundChannel,
   InboundMessageHandler,
+  WhatsAppGroupInviteHandler,
 } from "../../ports/inbound-channel.js";
 import type {
   DeliveryStatus,
@@ -16,6 +17,7 @@ import type {
   WhatsAppChatSender,
   WhatsAppDirectImage,
   WhatsAppDirectMessage,
+  WhatsAppGroupInviteV4,
   WhatsAppPairing,
   WhatsAppSender,
 } from "../../ports/whatsapp-sender.js";
@@ -60,6 +62,7 @@ type RawWhatsAppMessage = {
   timestamp: number;
   hasMedia?: boolean;
   type?: string;
+  inviteV4?: WhatsAppGroupInviteV4;
   downloadMedia?: () => Promise<RawWhatsAppMedia | undefined>;
   _data?: { notifyName?: string };
 };
@@ -101,6 +104,7 @@ implements InboundChannel, WhatsAppSender, WhatsAppChatSender, WhatsAppPairing {
   private readonly readyNotification?: WhatsAppWebChannelConfig["readyNotification"];
   private readonly errorNotification?: WhatsAppWebChannelConfig["errorNotification"];
   private handler?: InboundMessageHandler;
+  private groupInviteHandler?: WhatsAppGroupInviteHandler;
   private pairingCodeRequests = 0;
   private awaitingLinkLogged = false;
   private deliveryQueue: Array<(status: DeliveryStatus) => void> = [];
@@ -122,6 +126,10 @@ implements InboundChannel, WhatsAppSender, WhatsAppChatSender, WhatsAppPairing {
 
   onMessage(handler: InboundMessageHandler): void {
     this.handler = handler;
+  }
+
+  onGroupInvite(handler: WhatsAppGroupInviteHandler): void {
+    this.groupInviteHandler = handler;
   }
 
   async start(): Promise<void> {
@@ -197,7 +205,7 @@ implements InboundChannel, WhatsAppSender, WhatsAppChatSender, WhatsAppPairing {
 
     this.client.on("message", async rawMessage => {
       normalizeId(rawMessage);
-      if (!this.handler) {
+      if (!this.handler && !this.groupInviteHandler) {
         return;
       }
 
@@ -207,6 +215,23 @@ implements InboundChannel, WhatsAppSender, WhatsAppChatSender, WhatsAppPairing {
       logWhatsApp(`Received message ${msgId} from ${sender}${msgType}`);
 
       try {
+        if (
+          rawMessage.type === "groups_v4_invite" &&
+          rawMessage.inviteV4 &&
+          this.groupInviteHandler
+        ) {
+          await this.groupInviteHandler(
+            rawMessage.inviteV4,
+            rawMessage.from,
+            sender,
+          );
+          return;
+        }
+
+        if (!this.handler) {
+          return;
+        }
+
         if (!this.shouldHandle(rawMessage)) {
           return;
         }
@@ -251,6 +276,15 @@ implements InboundChannel, WhatsAppSender, WhatsAppChatSender, WhatsAppPairing {
     return this.sendWithContext(
       this.client.acceptInvite(inviteCode),
       "Accepting group invite",
+    );
+  }
+
+  async acceptGroupV4Invite(
+    inviteV4: WhatsAppGroupInviteV4,
+  ): Promise<{ status: number }> {
+    return this.sendWithContext(
+      this.client.acceptGroupV4Invite(inviteV4),
+      "Accepting group invite card",
     );
   }
 

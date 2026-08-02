@@ -5,6 +5,7 @@ import { defaultEnvFilePath } from "../../config.js";
 import { isFileMissing } from "../../errors.js";
 import type {
   PendingGroupInvite,
+  PendingGroupInviteDetails,
   PendingGroupInviteStore,
 } from "../../use-cases/pending-group-invite-store.js";
 
@@ -13,10 +14,10 @@ export class JsonPendingGroupInviteStore implements PendingGroupInviteStore {
 
   constructor(private readonly filePath: string) {}
 
-  async put(token: string, inviteCode: string): Promise<void> {
+  async put(token: string, invite: PendingGroupInviteDetails): Promise<void> {
     await this.enqueue(async () => {
       const invites = await this.readInvites();
-      const next = [...invites.filter(invite => invite.token !== token), { token, inviteCode }];
+      const next = [...invites.filter(existing => existing.token !== token), { token, ...invite }];
       await this.writeInvites(next);
     });
   }

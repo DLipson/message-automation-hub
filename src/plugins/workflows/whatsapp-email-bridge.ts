@@ -39,6 +39,8 @@ export function createWhatsAppEmailBridgePlugin(
         return;
       }
 
+      const whatsappInbound = ctx.require<InboundChannel>(capabilities.whatsappInbound);
+
       const inviteHandler = new AcceptGroupInviteByEmail(
         ctx.require<EmailInbox>(capabilities.emailInbox),
         ctx.require<EmailSender>(capabilities.emailSender),
@@ -52,6 +54,10 @@ export function createWhatsAppEmailBridgePlugin(
         },
         logger,
       );
+
+      whatsappInbound.onGroupInvite(async (inviteV4, fromId, senderLabel) => {
+        await inviteHandler.handleCardInvite(inviteV4, fromId, senderLabel);
+      });
 
       ctx.on("email.received", ({ email, batch }) => inviteHandler.handle(email, batch));
 

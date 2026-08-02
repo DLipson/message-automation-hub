@@ -5,10 +5,12 @@ import type { EmailMessage, EmailSender } from "../src/ports/email-sender.js";
 import type {
   SentMessage,
   WhatsAppChatSender,
+  WhatsAppGroupInviteV4,
 } from "../src/ports/whatsapp-sender.js";
 import { AcceptGroupInviteByEmail } from "../src/use-cases/accept-group-invite-by-email.js";
 import type {
   PendingGroupInvite,
+  PendingGroupInviteDetails,
   PendingGroupInviteStore,
 } from "../src/use-cases/pending-group-invite-store.js";
 import {
@@ -20,6 +22,7 @@ import { FakeEmailInbox } from "./fakes/fake-email-inbox.js";
 
 class FakeWhatsApp implements WhatsAppChatSender {
   readonly accepted: string[] = [];
+  readonly acceptedV4: WhatsAppGroupInviteV4[] = [];
 
   constructor(private readonly error?: Error) {}
 
@@ -35,6 +38,15 @@ class FakeWhatsApp implements WhatsAppChatSender {
     this.accepted.push(inviteCode);
     return `group-${inviteCode}@g.us`;
   }
+
+  async acceptGroupV4Invite(inviteV4: WhatsAppGroupInviteV4): Promise<{ status: number }> {
+    if (this.error) {
+      throw this.error;
+    }
+
+    this.acceptedV4.push(inviteV4);
+    return { status: 200 };
+  }
 }
 
 class FakeEmailSender implements EmailSender {
@@ -46,15 +58,15 @@ class FakeEmailSender implements EmailSender {
 }
 
 class FakePendingStore implements PendingGroupInviteStore {
-  readonly invites = new Map<string, string>();
+  readonly invites = new Map<string, PendingGroupInviteDetails>();
 
-  async put(token: string, inviteCode: string): Promise<void> {
-    this.invites.set(token, inviteCode);
+  async put(token: string, invite: PendingGroupInviteDetails): Promise<void> {
+    this.invites.set(token, invite);
   }
 
   async findByToken(token: string): Promise<PendingGroupInvite | null> {
-    const inviteCode = this.invites.get(token);
-    return inviteCode === undefined ? null : { token, inviteCode };
+    const invite = this.invites.get(token);
+    return invite === undefined ? null : { token, ...invite };
   }
 
   async remove(token: string): Promise<void> {
@@ -85,6 +97,15 @@ const thread: WhatsAppEmailThread = {
   chatId: "127513921597547@lid",
   subject: "WhatsApp: Alice [wa:abc123]",
   rootMessageId: "<wa.abc123@message-automation-hub.local>",
+};
+
+const inviteV4: WhatsAppGroupInviteV4 = {
+  inviteCode: "V4CODE",
+  inviteCodeExp: 1780000000,
+  groupId: "120363000000000001@g.us",
+  groupName: "Test Group",
+  fromId: "12025550108@c.us",
+  toId: "12025550108@lid",
 };
 
 function handlerFor(options: {
@@ -141,7 +162,7 @@ describe("AcceptGroupInviteByEmail", () => {
 
   it("accepts a pending invite when the owner replies 'accept'", async () => {
     const pending = new FakePendingStore();
-    await pending.put("abc123", "AbC123-xy");
+    await pending.put("abc123", { inviteCode: "AbC123-xy" });
     const whatsapp = new FakeWhatsApp();
     const { inbox, sender, handler } = handlerFor({ pending, whatsapp });
     const reply = email({
@@ -161,7 +182,7 @@ describe("AcceptGroupInviteByEmail", () => {
 
   it("accepts an invite reply matched by references", async () => {
     const pending = new FakePendingStore();
-    await pending.put("abc123", "AbC123-xy");
+    await pending.put("abc123", { inviteCode: "AbC123-xy" });
     const whatsapp = new FakeWhatsApp();
     const { inbox, sender, handler } = handlerFor({ pending, whatsapp });
     const reply = email({
@@ -180,7 +201,7 @@ describe("AcceptGroupInviteByEmail", () => {
 
   it("keeps the invite pending on a non-accept reply", async () => {
     const pending = new FakePendingStore();
-    await pending.put("abc123", "AbC123-xy");
+    await pending.put("abc123", { inviteCode: "AbC123-xy" });
     const whatsapp = new FakeWhatsApp();
     const { inbox, sender, handler } = handlerFor({ pending, whatsapp });
     const reply = email({
@@ -192,7 +213,7 @@ describe("AcceptGroupInviteByEmail", () => {
 
     expect(result).toBe(true);
     expect(whatsapp.accepted).toEqual([]);
-    expect(pending.invites.get("abc123")).toBe("AbC123-xy");
+    expect(pending.invites.get("abc123")).toEqual({ inviteCode: "AbC123-xy" });
     expect(sender.sent[0]?.subject).toContain("pending");
     expect(sender.sent[0]?.text).toContain("https://chat.whatsapp.com/AbC123-xy");
     expect(inbox.processed).toEqual([reply]);
@@ -200,7 +221,7 @@ describe("AcceptGroupInviteByEmail", () => {
 
   it("ignores replies from non-owners", async () => {
     const pending = new FakePendingStore();
-    await pending.put("abc123", "AbC123-xy");
+    await pending.put("abc123", { inviteCode: "AbC123-xy" });
     const whatsapp = new FakeWhatsApp();
     const { inbox, sender, handler } = handlerFor({ pending, whatsapp });
     const reply = email({
@@ -220,7 +241,7 @@ describe("AcceptGroupInviteByEmail", () => {
 
   it("keeps the invite pending when accepting fails", async () => {
     const pending = new FakePendingStore();
-    await pending.put("abc123", "AbC123-xy");
+    await pending.put("abc123", { inviteCode: "AbC123-xy" });
     const whatsapp = new FakeWhatsApp(new Error("invite expired"));
     const { inbox, sender, handler } = handlerFor({ pending, whatsapp });
     const reply = email({
@@ -232,7 +253,7 @@ describe("AcceptGroupInviteByEmail", () => {
 
     expect(result).toBe(true);
     expect(whatsapp.accepted).toEqual([]);
-    expect(pending.invites.get("abc123")).toBe("AbC123-xy");
+    expect(pending.invites.get("abc123")).toEqual({ inviteCode: "AbC123-xy" });
     expect(sender.sent[0]?.subject).toContain("could not be accepted");
     expect(sender.sent[0]?.text).toContain("invite expired");
     expect(inbox.processed).toEqual([reply]);
@@ -270,5 +291,85 @@ describe("AcceptGroupInviteByEmail", () => {
     expect(result).toBe(false);
     expect(sender.sent).toEqual([]);
     expect(inbox.processed).toEqual([]);
+  });
+
+  it("records a card invite and emails the owner a confirmation", async () => {
+    const { sender, handler } = handlerFor();
+    const token = await handler.handleCardInvite(
+      inviteV4,
+      "12025550108@c.us",
+      "Alice (12025550108@c.us)",
+    );
+
+    expect(token).toBe("abc123");
+    expect(sender.sent).toHaveLength(1);
+    const confirmation = sender.sent[0]!;
+    expect(confirmation.to).toBe("owner@example.com");
+    expect(confirmation.subject).toContain("[wa:abc123]");
+    expect(confirmation.text).toContain("Test Group");
+    expect(confirmation.text).toContain("Alice (12025550108@c.us)");
+    expect(confirmation.text).toContain("accept");
+    expect(confirmation.messageId).toBe(thread.rootMessageId);
+  });
+
+  it("accepts a card invite when the owner replies 'accept'", async () => {
+    const pending = new FakePendingStore();
+    await pending.put("abc123", { inviteV4 });
+    const whatsapp = new FakeWhatsApp();
+    const { inbox, sender, handler } = handlerFor({ pending, whatsapp });
+    const reply = email({
+      subject: "Re: Group invite detected [wa:abc123]",
+      text: "accept",
+    });
+
+    const result = await handler.handle(reply, { sentWhatsAppImage: false });
+
+    expect(result).toBe(true);
+    expect(whatsapp.acceptedV4).toEqual([inviteV4]);
+    expect(pending.invites.has("abc123")).toBe(false);
+    expect(sender.sent[0]?.subject).toContain("accepted");
+    expect(sender.sent[0]?.text).toContain("120363000000000001@g.us");
+    expect(inbox.processed).toEqual([reply]);
+  });
+
+  it("keeps a card invite pending when accepting fails", async () => {
+    const pending = new FakePendingStore();
+    await pending.put("abc123", { inviteV4 });
+    const whatsapp = new FakeWhatsApp(new Error("expired invite code"));
+    const { inbox, sender, handler } = handlerFor({ pending, whatsapp });
+    const reply = email({
+      subject: "Re: Group invite detected [wa:abc123]",
+      text: "accept",
+    });
+
+    const result = await handler.handle(reply, { sentWhatsAppImage: false });
+
+    expect(result).toBe(true);
+    expect(whatsapp.acceptedV4).toEqual([]);
+    expect(pending.invites.get("abc123")).toEqual({ inviteV4 });
+    expect(sender.sent[0]?.subject).toContain("could not be accepted");
+    expect(sender.sent[0]?.text).toContain("expired invite code");
+    expect(sender.sent[0]?.text).toContain("Test Group");
+    expect(inbox.processed).toEqual([reply]);
+  });
+
+  it("ignores card-invite accept replies from non-owners", async () => {
+    const pending = new FakePendingStore();
+    await pending.put("abc123", { inviteV4 });
+    const whatsapp = new FakeWhatsApp();
+    const { inbox, sender, handler } = handlerFor({ pending, whatsapp });
+    const reply = email({
+      from: "attacker@example.com",
+      subject: "Re: Group invite detected [wa:abc123]",
+      text: "accept",
+    });
+
+    const result = await handler.handle(reply, { sentWhatsAppImage: false });
+
+    expect(result).toBe(true);
+    expect(whatsapp.acceptedV4).toEqual([]);
+    expect(sender.sent).toEqual([]);
+    expect(pending.invites.has("abc123")).toBe(true);
+    expect(inbox.processed).toEqual([reply]);
   });
 });
