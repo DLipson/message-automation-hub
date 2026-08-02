@@ -1,5 +1,16 @@
 # Logs
 
+## 2026-08-02 - Accept WhatsApp group invites by email reply
+
+- **Feature** - The hub now accepts WhatsApp group invites when the owner replies `accept` to an invite email. Flow: an invite **link** (`https://chat.whatsapp.com/<code>`) is detected either in a WhatsApp-DM message forwarded to email (source A, matched to the existing thread token) or in a direct email to the hub (source B, fresh token). The hub emails the owner a confirmation ("Reply with exactly: accept") and records a pending invite keyed by a thread token (file-backed JSON, restart-proof). Replying `accept` calls wwebjs `client.acceptInvite(code)`; the result (chat id or error) is emailed back. Any other reply gets a nudge and the invite stays pending.
+- **Security boundary** - Acceptance only when the reply's `from` matches `config.email.to` (the owner). Non-owner replies are consumed and marked processed, never accepted.
+- **Port change** - `acceptInvite(inviteCode): Promise<string>` added to `WhatsAppChatSender`. Implementers (grep-confirmed before editing): `src/adapters/whatsapp/whatsapp-web-channel.ts` (real, via wwebjs) and `FakeWhatsApp` in `test/reply-email-to-whatsapp.test.ts` (stub).
+- **Ordering matters** - The invite handler is registered on `email.received` *before* `ReplyEmailToWhatsApp`, because `emit` stops at the first handler that returns `true` — so an `accept` reply is consumed and never forwarded to WhatsApp as a chat message.
+- **Wiring** - `createWhatsAppEmailBridgePlugin(config, env)` now takes env (mirrors the providers pattern) to resolve the pending-invite store path (`PENDING_GROUP_INVITE_STORE_FILE` or beside the env file).
+- **ponytail: deferred** - `groups_v4_invite` cards (no link text, need `acceptGroupV4Invite` on the message object) are not handled; invite links only. Single pending invite per token; a second invite to the same thread replaces the first. No TTL on pending invites.
+- **Verification** - 8 new tests in `test/accept-group-invite-by-email.test.ts` (direct-email record+confirm, accept by subject token, accept by references, non-accept nudge, non-owner ignore, accept failure keeps pending, source-A thread token, unrelated email falls through). 154 tests pass, `tsc --noEmit` clean. Committed as 4 logical commits on `feat/accept-group-invite`.
+
+
 ## 2026-08-02 - Split repo into two independent GitHub repositories
 
 - **Goal** - Complete the split started 2026-07-31: core (`message-automation-hub`, now `@message-automation/core` at the repo root) and plugins (`message-automation-plugins`, new public repo) are now two standalone repos. Plugins depend on core for **types only** via a git dependency, like `@types/vscode`.
