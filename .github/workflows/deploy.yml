@@ -2,7 +2,7 @@ name: Deploy
 
 on:
   push:
-    branches: [master]
+    branches: [master, stage]
   workflow_dispatch:
 
 permissions:
@@ -25,9 +25,9 @@ jobs:
       - run: npm test
       - run: npm run build
 
-  deploy:
+  deploy-prod:
     needs: verify
-    if: vars.GCP_WORKLOAD_IDENTITY_PROVIDER != '' && vars.GCP_SERVICE_ACCOUNT != '' && vars.GCP_PROJECT_ID != '' && vars.GCP_ZONE != '' && vars.GCP_INSTANCE != ''
+    if: github.ref_name == 'master' && vars.GCP_WORKLOAD_IDENTITY_PROVIDER != '' && vars.GCP_SERVICE_ACCOUNT != '' && vars.GCP_PROJECT_ID != '' && vars.GCP_ZONE != '' && vars.GCP_INSTANCE != ''
     runs-on: ubuntu-latest
 
     steps:
@@ -218,4 +218,136 @@ jobs:
             --port 1 \
             --start 0 | tail -n 400
           echo "Timed out waiting for VM startup deploy marker: $complete_marker" >&2
+          exit 1
+
+  deploy-stage:
+    needs: verify
+    if: github.ref_name == 'stage' && vars.GCP_WORKLOAD_IDENTITY_PROVIDER != '' && vars.GCP_SERVICE_ACCOUNT != '' && vars.GCP_PROJECT_ID != '' && vars.STAGING_GCP_ZONE != '' && vars.STAGING_GCP_INSTANCE != ''
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - id: auth
+        uses: google-github-actions/auth@v3
+        with:
+          workload_identity_provider: ${{ vars.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ vars.GCP_SERVICE_ACCOUNT }}
+          project_id: ${{ vars.GCP_PROJECT_ID }}
+
+      - uses: google-github-actions/setup-gcloud@v3
+
+      - name: Deploy stage through VM startup script
+        env:
+          GCP_PROJECT_ID: ${{ vars.GCP_PROJECT_ID }}
+          GCP_ZONE: ${{ vars.STAGING_GCP_ZONE }}
+          GCP_INSTANCE: ${{ vars.STAGING_GCP_INSTANCE }}
+          REPO_URL: https://github.com/${{ github.repository }}.git
+          TARGET_COMMIT: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+
+          app_dir="/opt/message-automation-hub"
+          complete_marker="Stage deploy startup script complete for ${TARGET_COMMIT}."
+
+          deploy_script="$(mktemp)"
+          normal_script="$(mktemp)"
+
+          cat >"$deploy_script" <<REMOTE_SCRIPT
+          #!/usr/bin/env bash
+          set -euo pipefail
+          export HOME=/root
+
+          exec > >(tee -a /var/log/message-hub-stage-deploy.log | logger -t message-hub-stage-deploy -s 2>/dev/console) 2>&1
+
+          service="message-automation-hub"
+          app_dir="${app_dir}"
+          repo_url="${REPO_URL}"
+          target_commit="${TARGET_COMMIT}"
+
+          printf '[%s] Starting stage deploy startup script for %s.\n' "\$(date --iso-8601=seconds)" "\$target_commit"
+
+          systemctl stop "\$service" || true
+
+          mkdir -p "\$app_dir"
+          cd "\$app_dir"
+          git config --system --add safe.directory "\$app_dir" || true
+
+          if [ ! -d .git ]; then
+            git init
+            git remote add origin "\$repo_url"
+          elif ! git remote get-url origin >/dev/null 2>&1; then
+            git remote add origin "\$repo_url"
+          else
+            git remote set-url origin "\$repo_url"
+          fi
+
+          git fetch origin stage
+          git checkout --force -B stage "\$target_commit"
+          git reset --hard "\$target_commit"
+
+          mkdir -p secrets
+          if [ ! -f .env ]; then
+            cp .env.example .env
+            printf 'Created .env from example; configure secrets before the bot can run.\n'
+          fi
+          if [ ! -f secrets/secrets.json ]; then
+            printf '{}' > secrets/secrets.json
+            chmod 600 secrets/secrets.json
+            printf 'Created empty secrets/secrets.json; configure before the bot can run.\n'
+          fi
+
+          docker compose up -d --build
+
+          printf '[%s] ${complete_marker}\n' "\$(date --iso-8601=seconds)"
+          REMOTE_SCRIPT
+
+          cat >"$normal_script" <<'NORMAL_SCRIPT'
+          #!/usr/bin/env bash
+          set -euo pipefail
+
+          service="message-automation-hub"
+          app_dir="/opt/message-automation-hub"
+
+          systemctl stop "$service" || true
+          cd "$app_dir" || exit 0
+          docker compose up -d || true
+          NORMAL_SCRIPT
+
+          gcloud compute instances add-metadata "$GCP_INSTANCE" \
+            --project "$GCP_PROJECT_ID" \
+            --zone "$GCP_ZONE" \
+            --metadata-from-file startup-script="$deploy_script"
+
+          gcloud compute instances reset "$GCP_INSTANCE" \
+            --project "$GCP_PROJECT_ID" \
+            --zone "$GCP_ZONE" \
+            --quiet
+
+          deadline=$((SECONDS + 1200))
+          while [ "$SECONDS" -lt "$deadline" ]; do
+            serial_output="$(gcloud compute instances get-serial-port-output "$GCP_INSTANCE" \
+              --project "$GCP_PROJECT_ID" \
+              --zone "$GCP_ZONE" \
+              --port 1 \
+              --start 0 || true)"
+
+            if grep -Fq "$complete_marker" <<<"$serial_output"; then
+              printf '%s\n' "$serial_output" | tail -n 200
+              gcloud compute instances add-metadata "$GCP_INSTANCE" \
+                --project "$GCP_PROJECT_ID" \
+                --zone "$GCP_ZONE" \
+                --metadata-from-file startup-script="$normal_script"
+              exit 0
+            fi
+
+            sleep 15
+          done
+
+          gcloud compute instances get-serial-port-output "$GCP_INSTANCE" \
+            --project "$GCP_PROJECT_ID" \
+            --zone "$GCP_ZONE" \
+            --port 1 \
+            --start 0 | tail -n 400
+          echo "Timed out waiting for VM stage deploy marker: $complete_marker" >&2
           exit 1
