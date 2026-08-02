@@ -28,6 +28,10 @@ class FakeWhatsApp implements WhatsAppChatSender {
     this.sent.push(message);
     return { delivery: new Promise(() => {}) };
   }
+
+  async acceptInvite(_inviteCode: string): Promise<string> {
+    throw new Error("not implemented");
+  }
 }
 
 class FakeEmailSender implements EmailSender {

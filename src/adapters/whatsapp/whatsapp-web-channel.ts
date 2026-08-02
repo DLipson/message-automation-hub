@@ -247,6 +247,13 @@ implements InboundChannel, WhatsAppSender, WhatsAppChatSender, WhatsAppPairing {
     );
   }
 
+  async acceptInvite(inviteCode: string): Promise<string> {
+    return this.sendWithContext(
+      this.client.acceptInvite(inviteCode),
+      "Accepting group invite",
+    );
+  }
+
   async sendImage(message: WhatsAppDirectImage): Promise<SentMessage> {
     const chatId = await this.ensureChatForPhoneNumber(message.phoneNumber);
     const media = new MessageMedia(

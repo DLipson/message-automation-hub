@@ -29,6 +29,7 @@ export interface WhatsAppSender {
 
 export interface WhatsAppChatSender {
   sendChatMessage(message: WhatsAppChatMessage): Promise<SentMessage>;
+  acceptInvite(inviteCode: string): Promise<string>;
 }
 
 /**
