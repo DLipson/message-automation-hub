@@ -443,6 +443,45 @@ describe("WhatsAppWebChannel", () => {
 
     expect(received).toEqual([]);
   });
+
+  it("surfaces group invite cards via onGroupInvite without forwarding them", async () => {
+    const log = vi.spyOn(console, "log").mockImplementation(() => {});
+    const received: unknown[] = [];
+    const invites: unknown[] = [];
+    const channel = new WhatsAppWebChannel({ phoneNumber: "12025550108" });
+    channel.onMessage(async message => {
+      received.push(message);
+    });
+    channel.onGroupInvite(async (inviteV4, fromId, senderLabel) => {
+      invites.push({ inviteV4, fromId, senderLabel });
+    });
+
+    await channel.start();
+    await whatsappMock.clients[0]?.handlers.get("message")?.({
+      id: { _serialized: "message-1" },
+      from: "12025550108@c.us",
+      body: "",
+      timestamp: 1,
+      type: "groups_v4_invite",
+      inviteV4: {
+        inviteCode: "V4CODE",
+        inviteCodeExp: 1780000000,
+        groupId: "120363000000000001@g.us",
+        groupName: "Test Group",
+        fromId: "12025550108@c.us",
+        toId: "12025550108@lid",
+      },
+    });
+
+    expect(received).toEqual([]);
+    expect(invites).toHaveLength(1);
+    expect(invites[0]).toMatchObject({
+      fromId: "12025550108@c.us",
+      senderLabel: "12025550108@c.us",
+      inviteV4: { groupName: "Test Group" },
+    });
+    expect(log.mock.calls.flat().join("\n")).toContain("type: groups_v4_invite");
+  });
 });
 
 async function emitMessage(overrides: {

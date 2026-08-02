@@ -6,6 +6,7 @@ import type {
   SentMessage,
   WhatsAppChatMessage,
   WhatsAppChatSender,
+  WhatsAppGroupInviteV4,
 } from "../src/ports/whatsapp-sender.js";
 import { FakeEmailInbox } from "./fakes/fake-email-inbox.js";
 import { ReplyEmailToWhatsApp } from "../src/use-cases/reply-email-to-whatsapp.js";
@@ -27,6 +28,14 @@ class FakeWhatsApp implements WhatsAppChatSender {
 
     this.sent.push(message);
     return { delivery: new Promise(() => {}) };
+  }
+
+  async acceptInvite(_inviteCode: string): Promise<string> {
+    throw new Error("not implemented");
+  }
+
+  async acceptGroupV4Invite(_inviteV4: WhatsAppGroupInviteV4): Promise<{ status: number }> {
+    throw new Error("not implemented");
   }
 }
 

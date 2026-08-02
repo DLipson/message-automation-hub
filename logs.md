@@ -1,5 +1,25 @@
 # Logs
 
+## 2026-08-02 - Accept WhatsApp group invite cards (`groups_v4_invite`) by email reply
+
+- **Feature** - Card invites now flow through the same email-reply acceptance as links. A `groups_v4_invite` WhatsApp message (no link text) is intercepted by the adapter's message handler and surfaced via a new `onGroupInvite(inviteV4, fromId, senderLabel)` inbound callback instead of being dropped by the forward pipeline as an empty-body message. The bridge plugin routes it through `AcceptGroupInviteByEmail.handleCardInvite`, which records the full `inviteV4` data against the inviter's thread token and emails the owner ("Group: <name>, Invited by: <sender>, Reply with exactly: accept"). Replying `accept` calls wwebjs `client.acceptGroupV4Invite(inviteV4)`.
+- **Why the full record, not just the code** - wwebjs `acceptInvite` runs the public-link job (`WAWebGroupInviteJob.joinGroupViaInvite(code)`) while cards need the V4 job (`WAWebGroupInviteV4Job.joinGroupViaInviteV4(code, exp, groupId, fromId)`, which throws `'Expired invite code'` when `inviteCodeExp == 0`). The V4 data is carried through the pending store so the accept path has everything without a live message object.
+- **Port changes** - `WhatsAppChatSender` gained `acceptGroupV4Invite(inviteV4): Promise<{ status: number }>` plus the `WhatsAppGroupInviteV4` type; `InboundChannel` gained `onGroupInvite`. Implementers: the adapter (real) and `FakeWhatsApp` in `test/reply-email-to-whatsapp.test.ts` + `test/accept-group-invite-by-email.test.ts` (stubs). `InboundChannel` has no other implementers (grep-confirmed).
+- **Store shape** - `PendingGroupInviteStore.put(token, invite)` now takes a details object (`{ inviteCode? }` or `{ inviteV4? }`, exactly one) instead of a bare code string; JSON store updated (same file, replace-per-token).
+- **Security boundary** - Unchanged from the link flow: only replies whose `from` matches `config.email.to` are accepted; non-owner replies are consumed and marked processed.
+- **Verification** - 4 new use-case tests (card record+confirm, accept by card, accept failure keeps pending, non-owner ignore) + 1 new adapter test (card intercepted by `onGroupInvite`, not forwarded). 151 tests pass, `tsc --noEmit` clean. Committed on `feat/accept-group-invite`.
+
+## 2026-08-02 - Accept WhatsApp group invites by email reply
+
+- **Feature** - The hub now accepts WhatsApp group invites when the owner replies `accept` to an invite email. Flow: an invite **link** (`https://chat.whatsapp.com/<code>`) is detected either in a WhatsApp-DM message forwarded to email (source A, matched to the existing thread token) or in a direct email to the hub (source B, fresh token). The hub emails the owner a confirmation ("Reply with exactly: accept") and records a pending invite keyed by a thread token (file-backed JSON, restart-proof). Replying `accept` calls wwebjs `client.acceptInvite(code)`; the result (chat id or error) is emailed back. Any other reply gets a nudge and the invite stays pending.
+- **Security boundary** - Acceptance only when the reply's `from` matches `config.email.to` (the owner). Non-owner replies are consumed and marked processed, never accepted.
+- **Port change** - `acceptInvite(inviteCode): Promise<string>` added to `WhatsAppChatSender`. Implementers (grep-confirmed before editing): `src/adapters/whatsapp/whatsapp-web-channel.ts` (real, via wwebjs) and `FakeWhatsApp` in `test/reply-email-to-whatsapp.test.ts` (stub).
+- **Ordering matters** - The invite handler is registered on `email.received` *before* `ReplyEmailToWhatsApp`, because `emit` stops at the first handler that returns `true` — so an `accept` reply is consumed and never forwarded to WhatsApp as a chat message.
+- **Wiring** - `createWhatsAppEmailBridgePlugin(config, env)` now takes env (mirrors the providers pattern) to resolve the pending-invite store path (`PENDING_GROUP_INVITE_STORE_FILE` or beside the env file).
+- **ponytail: deferred** - `groups_v4_invite` cards (no link text, need `acceptGroupV4Invite` on the message object) are not handled; invite links only. Single pending invite per token; a second invite to the same thread replaces the first. No TTL on pending invites.
+- **Verification** - 8 new tests in `test/accept-group-invite-by-email.test.ts` (direct-email record+confirm, accept by subject token, accept by references, non-accept nudge, non-owner ignore, accept failure keeps pending, source-A thread token, unrelated email falls through). 154 tests pass, `tsc --noEmit` clean. Committed as 4 logical commits on `feat/accept-group-invite`.
+
+
 ## 2026-08-02 - Split repo into two independent GitHub repositories
 
 - **Goal** - Complete the split started 2026-07-31: core (`message-automation-hub`, now `@message-automation/core` at the repo root) and plugins (`message-automation-plugins`, new public repo) are now two standalone repos. Plugins depend on core for **types only** via a git dependency, like `@types/vscode`.

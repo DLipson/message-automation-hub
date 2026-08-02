@@ -1,6 +1,11 @@
 import type { AppConfig } from "../../config.js";
 import type { HubPlugin } from "../../api/index.js";
 import { capabilities } from "../../api/index.js";
+import {
+  defaultPendingGroupInviteStorePath,
+  JsonPendingGroupInviteStore,
+} from "../../adapters/email/json-pending-group-invite-store.js";
+import { AcceptGroupInviteByEmail } from "../../use-cases/accept-group-invite-by-email.js";
 import { ForwardMessageToEmail } from "../../use-cases/forward-message-to-email.js";
 import { ReplyEmailToWhatsApp } from "../../use-cases/reply-email-to-whatsapp.js";
 import type { AppLogger } from "../../ports/app-logger.js";
@@ -10,7 +15,10 @@ import type { InboundChannel } from "../../ports/inbound-channel.js";
 import type { WhatsAppChatSender } from "../../ports/whatsapp-sender.js";
 import type { WhatsAppEmailThreadStore } from "../../use-cases/whatsapp-email-thread-store.js";
 
-export function createWhatsAppEmailBridgePlugin(config: AppConfig): HubPlugin {
+export function createWhatsAppEmailBridgePlugin(
+  config: AppConfig,
+  env: NodeJS.ProcessEnv = process.env,
+): HubPlugin {
   return {
     name: "whatsapp-email-bridge",
     onLoad(ctx) {
@@ -30,6 +38,28 @@ export function createWhatsAppEmailBridgePlugin(config: AppConfig): HubPlugin {
       if (!config.emailToWhatsapp.enabled) {
         return;
       }
+
+      const whatsappInbound = ctx.require<InboundChannel>(capabilities.whatsappInbound);
+
+      const inviteHandler = new AcceptGroupInviteByEmail(
+        ctx.require<EmailInbox>(capabilities.emailInbox),
+        ctx.require<EmailSender>(capabilities.emailSender),
+        threadStore,
+        new JsonPendingGroupInviteStore(defaultPendingGroupInviteStorePath(env)),
+        ctx.require<WhatsAppChatSender>(capabilities.whatsappChatSender),
+        {
+          ownerEmail: config.email.to,
+          from: config.email.from,
+          messageIdDomain: config.email.messageIdDomain,
+        },
+        logger,
+      );
+
+      whatsappInbound.onGroupInvite(async (inviteV4, fromId, senderLabel) => {
+        await inviteHandler.handleCardInvite(inviteV4, fromId, senderLabel);
+      });
+
+      ctx.on("email.received", ({ email, batch }) => inviteHandler.handle(email, batch));
 
       const replyHandler = new ReplyEmailToWhatsApp(
         ctx.require<EmailInbox>(capabilities.emailInbox),
