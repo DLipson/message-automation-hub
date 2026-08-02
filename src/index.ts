@@ -38,7 +38,7 @@ async function start(): Promise<void> {
     createEmailPlugin(config, process.env),
     createThreadStorePlugin(config, process.env),
     createWhatsAppWebPlugin(config),
-    createWhatsAppEmailBridgePlugin(config),
+    createWhatsAppEmailBridgePlugin(config, process.env),
   ], config as Record<string, unknown>);
   const whatsapp = pluginContext.require<InboundChannel>(capabilities.whatsappInbound);
 
