@@ -347,7 +347,7 @@ jobs:
             --zone "$GCP_ZONE" \
             --quiet
 
-          deadline=$((SECONDS + 2700))
+          deadline=$((SECONDS + 3600))
           while [ "$SECONDS" -lt "$deadline" ]; do
             serial_output="$(gcloud compute instances get-serial-port-output "$GCP_INSTANCE" \
               --project "$GCP_PROJECT_ID" \
