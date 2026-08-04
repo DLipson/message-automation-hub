@@ -284,6 +284,12 @@ jobs:
           swapon --show
           free -h
 
+          if ! command -v git >/dev/null 2>&1; then
+            printf '[%s] git not found; installing.\n' "\$(date --iso-8601=seconds)"
+            apt-get update
+            apt-get install -y git
+          fi
+
           systemctl stop "\$service" || true
 
           mkdir -p "\$app_dir"
