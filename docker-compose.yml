@@ -1,6 +1,6 @@
 services:
   hub:
-    build: .
+    image: ghcr.io/dlipsom/message-automation-hub:${MESSAGE_HUB_IMAGE_TAG:-stage}
     container_name: message-automation-hub
     restart: unless-stopped
     env_file:
