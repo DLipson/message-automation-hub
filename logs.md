@@ -1,5 +1,14 @@
 # Logs
 
+## 2026-08-09 - Stage deploys now pull a prebuilt GHCR image instead of building on the VM
+
+- **Why** - Every stage deploy was failing at the *first* `git` call on the VM: the Debian 13 image ships no git, `set -euo pipefail` killed the startup script before `docker compose` was ever reached. Diagnosed via Cloud Logging (`logName:"syslog" AND "message-hub-stage-deploy"`) once correct IAM was granted to the VM's service account (`1023328382892-compute@developer.gserviceaccount.com`); swap + deadline bumps (`ee09dad`, `e5ed1df`) were never the true blocker.
+- **Fix - move the build off the VM entirely** - New `build-stage-image` job (stage only) builds with Buildx and pushes `ghcr.io/dlipson/message-automation-hub:stage-<sha>` using the GITHUB_TOKEN (`packages: write`). `deploy-stage` now `needs: [verify, build-stage-image]`, and its startup script only installs Docker (if missing), writes `docker-compose.yml` (tag baked in via sed from the runner checkout) plus `.env.example`, then `docker compose pull && docker compose up -d`. All git clone/swap/npm-build logic removed from the stage path.
+- **Repo is public** - Verified with `gh repo view` (`isPrivate:false`); `.dockerignore` blocks `.env`, `**/.env`, `secrets`, `.wwebjs_auth`. Public GHCR image leaks nothing extra and needs no credentials on the VM.
+- **broke once** - First push failed `denied: not_found: owner not found`: I had mistyped the GHCR namespace as `dlipsom` (extra `m`); the real lowercase owner is `dlipson`. Fixed in both `deploy.yml` tags and `docker-compose.yml`.
+- **Verification** - Run `31328587996` green end-to-end: verify, image build+push, deploy-stage success with `Stage deploy startup script complete for 57b8bdb...` in the VM log; container started via docker compose.
+- **Ponytail note** - Keeping master's systemd/npm path untouched; only stage switches to image-based deploys.
+
 ## 2026-08-02 - Accept WhatsApp group invite cards (`groups_v4_invite`) by email reply
 
 - **Feature** - Card invites now flow through the same email-reply acceptance as links. A `groups_v4_invite` WhatsApp message (no link text) is intercepted by the adapter's message handler and surfaced via a new `onGroupInvite(inviteV4, fromId, senderLabel)` inbound callback instead of being dropped by the forward pipeline as an empty-body message. The bridge plugin routes it through `AcceptGroupInviteByEmail.handleCardInvite`, which records the full `inviteV4` data against the inviter's thread token and emails the owner ("Group: <name>, Invited by: <sender>, Reply with exactly: accept"). Replying `accept` calls wwebjs `client.acceptGroupV4Invite(inviteV4)`.
