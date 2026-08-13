@@ -118,6 +118,8 @@ implements InboundChannel, WhatsAppSender, WhatsAppChatSender, WhatsAppPairing {
   private catchUpPending = true;
   private catchUpInFlight = false;
   private catchUpState: CatchUpState | null = null;
+  private linked = false;
+  private unlinkedNotified = false;
   private deliveryQueue: Array<(status: DeliveryStatus) => void> = [];
 
   constructor(config: WhatsAppWebChannelConfig) {
@@ -159,6 +161,8 @@ implements InboundChannel, WhatsAppSender, WhatsAppChatSender, WhatsAppPairing {
 
     this.client.on("ready", () => {
       logWhatsApp("Client is ready.");
+      this.linked = true;
+      this.unlinkedNotified = false;
       this.sendReadyNotification();
       void this.runCatchUpIfPending();
     });
@@ -167,6 +171,7 @@ implements InboundChannel, WhatsAppSender, WhatsAppChatSender, WhatsAppPairing {
       if (this.sessionEndHandled) return;
       this.sessionEndHandled = true;
       this.catchUpPending = true;
+      this.linked = false;
       const reasonText = formatError(reason);
       logWhatsApp(
         `Client disconnected: ${reasonText}. The WhatsApp session ended; restarting the service so a fresh client can re-link. Request a pairing code once it is back up.`,
@@ -266,11 +271,13 @@ implements InboundChannel, WhatsAppSender, WhatsAppChatSender, WhatsAppPairing {
   }
 
   async sendMessage(message: WhatsAppDirectMessage): Promise<SentMessage> {
+    this.ensureLinked();
     const chatId = await this.ensureChatForPhoneNumber(message.phoneNumber);
     return this.sendChatMessage({ chatId, text: message.text });
   }
 
   async sendChatMessage(message: WhatsAppChatMessage): Promise<SentMessage> {
+    this.ensureLinked();
     return this.sendAndTrack(
       message.chatId,
       this.client.sendMessage(message.chatId, message.text),
@@ -278,6 +285,7 @@ implements InboundChannel, WhatsAppSender, WhatsAppChatSender, WhatsAppPairing {
   }
 
   async sendImage(message: WhatsAppDirectImage): Promise<SentMessage> {
+    this.ensureLinked();
     const chatId = await this.ensureChatForPhoneNumber(message.phoneNumber);
     const media = new MessageMedia(
       message.image.contentType,
@@ -319,6 +327,26 @@ implements InboundChannel, WhatsAppSender, WhatsAppChatSender, WhatsAppPairing {
         `Failed to send ready notification: ${formatError(error)}`,
       );
     }
+  }
+
+  private ensureLinked(): void {
+    if (this.linked) return;
+    this.notifyUnlinkedOnce();
+    throw new Error("WhatsApp is not linked yet; request a pairing code");
+  }
+
+  private notifyUnlinkedOnce(): void {
+    if (this.unlinkedNotified) return;
+    this.unlinkedNotified = true;
+    void this.notifyError(
+      "Message Hub: WhatsApp needs re-linking",
+      [
+        "WhatsApp sends were attempted while the client is not linked.",
+        "Request a pairing code to reconnect.",
+        "",
+        `Time: ${new Date().toISOString()}`,
+      ].join("\n"),
+    );
   }
 
   private async notifyError(subject: string, text: string): Promise<void> {

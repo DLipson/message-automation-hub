@@ -1,5 +1,12 @@
 # Logs
 
+## 2026-08-14 - Fail-fast sends while WhatsApp is unlinked, with one-time re-link alert
+
+- **Problem** - After the session is revoked (`LOGOUT`), sends attempted while the bot is still "Waiting to be linked" dive into the WhatsApp Web page drone with no `WWebJS`, failing as the cryptic `Cannot read properties of undefined (reading 'getChat')` (the 08-12 Defect 3, again 08-13 for reply emails 385/387). Because `ReplyEmailToWhatsApp` skips `markProcessed` on failure, the emails are **not lost** — they retry each poll and flush once the device re-pairs — but the churn was silent unless `failureNotification` was set.
+- **Fix** - `WhatsAppWebChannel` now tracks `linked` (false until first `ready`, false again on `disconnected`). `sendMessage`/`sendChatMessage`/`sendImage` fail fast *before* touching the page: `ensureLinked()` throws `"WhatsApp is not linked yet; request a pairing code"` and fires the existing `errorNotification` **once per unlinked window** (`unlinkedNotified`, reset on the next `ready`).
+- **Verification** - 3 new tests (clear error + no send while unlinked; sends work after `ready`; single re-link alert per window, repeated after a fresh link). 168 tests pass, `tsc --noEmit` clean.
+- **Ops** - This is symptom management; the session revoke itself is WhatsApp kicking the unofficial web client (see 08-12 entry). Re-link = request a pairing code from the bot control server.
+
 ## 2026-08-14 - WhatsApp catch-up: forward messages missed during an offline window
 
 - **Problem** - A crash or logout (Reversed the bot) leaves a gap: messages received while the client was down are never forwarded to email. The old code shipped history only via `window.WWebJS onAnyMessage` re-sync, which re-emits everything but was unused for forwarding.

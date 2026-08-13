@@ -128,6 +128,74 @@ describe("WhatsAppWebChannel", () => {
     await expect(pairing.requestPairingCode()).resolves.toBe("123456");
   });
 
+  it("fails sends fast with a clear error while the client is not linked", async () => {
+    const channel = new WhatsAppWebChannel({ phoneNumber: "12025550108" });
+
+    await channel.start();
+    const client = whatsappMock.clients[0];
+
+    await expect(
+      channel.sendChatMessage({ chatId: "1@c.us", text: "hi" }),
+    ).rejects.toThrow("WhatsApp is not linked yet");
+    expect(client?.sendMessage).not.toHaveBeenCalled();
+
+    await expect(channel.sendImage({
+      phoneNumber: "12025550109",
+      text: "img",
+      image: { contentType: "image/png", content: Buffer.from("x") },
+    })).rejects.toThrow("WhatsApp is not linked yet");
+    expect(client?.sendMessage).not.toHaveBeenCalled();
+  });
+
+  it("sends again once the client has been ready", async () => {
+    const channel = new WhatsAppWebChannel({ phoneNumber: "12025550108" });
+
+    await channel.start();
+    const client = whatsappMock.clients[0];
+    client?.handlers.get("ready")?.();
+
+    await expect(
+      channel.sendChatMessage({ chatId: "1@c.us", text: "hi" }),
+    ).resolves.toBeDefined();
+    expect(client?.sendMessage).toHaveBeenCalledWith("1@c.us", "hi");
+  });
+
+  it("notifies once per unlinked window when sends are attempted", async () => {
+    vi.spyOn(console, "log").mockImplementation(() => {});
+    vi.spyOn(process, "exit").mockImplementation((() => {}) as never);
+    const notifier = new FakeEmailSender();
+    const channel = new WhatsAppWebChannel({
+      phoneNumber: "12025550108",
+      errorNotification: {
+        sender: notifier,
+        from: "bot@example.com",
+        to: "owner@example.com",
+      },
+    });
+
+    await channel.start();
+    const client = whatsappMock.clients[0];
+
+    await expect(
+      channel.sendChatMessage({ chatId: "1@c.us", text: "hi" }),
+    ).rejects.toThrow("not linked");
+    await expect(
+      channel.sendChatMessage({ chatId: "1@c.us", text: "again" }),
+    ).rejects.toThrow("not linked");
+    expect(notifier.sent).toHaveLength(1);
+    expect(notifier.sent[0]).toMatchObject({
+      subject: "Message Hub: WhatsApp needs re-linking",
+    });
+
+    // A fresh link resets the guard, so the next unlinked send alerts again.
+    client?.handlers.get("ready")?.();
+    client?.handlers.get("disconnected")?.("LOGOUT");
+    await expect(
+      channel.sendChatMessage({ chatId: "1@c.us", text: "third" }),
+    ).rejects.toThrow("not linked");
+    expect(notifier.sent).toHaveLength(2);
+  });
+
   it("catches async inbound message handler failures", async () => {
     const log = vi.spyOn(console, "log").mockImplementation(() => {});
     const channel = new WhatsAppWebChannel({ phoneNumber: "12025550108" });
