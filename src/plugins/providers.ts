@@ -9,6 +9,10 @@ import {
 import { SmtpEmailSender } from "../adapters/email/smtp-email-sender.js";
 import type { AppLogger } from "../ports/app-logger.js";
 import { WhatsAppWebChannel } from "../adapters/whatsapp/whatsapp-web-channel.js";
+import {
+  defaultWhatsAppCatchUpStorePath,
+  JsonWhatsAppCatchUpStore,
+} from "../adapters/whatsapp/json-whatsapp-catch-up-store.js";
 import { capabilities } from "./capabilities.js";
 import { dirname, join } from "node:path";
 
@@ -60,7 +64,10 @@ export function createThreadStorePlugin(
   };
 }
 
-export function createWhatsAppWebPlugin(config: AppConfig): HubPlugin {
+export function createWhatsAppWebPlugin(
+  config: AppConfig,
+  env: NodeJS.ProcessEnv = process.env,
+): HubPlugin {
   return {
     id: "whatsapp-web",
     register(ctx) {
@@ -70,6 +77,11 @@ export function createWhatsAppWebPlugin(config: AppConfig): HubPlugin {
 
       const whatsapp = new WhatsAppWebChannel({
         ...config.whatsapp,
+        catchUp: {
+          store: new JsonWhatsAppCatchUpStore(
+            defaultWhatsAppCatchUpStorePath(env),
+          ),
+        },
         ...(emailSender
           ? {
               readyNotification: {

@@ -1,5 +1,15 @@
 # Logs
 
+## 2026-08-14 - WhatsApp catch-up: forward messages missed during an offline window
+
+- **Problem** - A crash or logout (Reversed the bot) leaves a gap: messages received while the client was down are never forwarded to email. The old code shipped history only via `window.WWebJS onAnyMessage` re-sync, which re-emits everything but was unused for forwarding.
+- **Change** - `WhatsAppWebChannel` now runs a catch-up sweep after the first `ready` and after every `disconnected`+`ready` cycle:
+  - `runCatchUpIfPending` / `sweepForMissedMessages`: on `ready`, `getChats()` and fetch the newest messages per chat, forwarding any not-from-me message newer than the persisted watermark. Skips pre-existing history on first ever run (`initialized` baseline) so we never flood email with the account's old backlog.
+  - `trackWatermark` advances the stored per-chat timestamp as live messages are handled, so the sweep finds nothing new during a normal session (idempotent against the 8× `ready` re-sync storm from 08-12).
+  - New `JsonWhatsAppCatchUpStore` (atomic write, serialized save queue) persists chat watermarks in `whatsapp-catch-up.json` next to the env file; `WHATSAPP_CATCH_UP_STORE_FILE` overrides. Wired via `createWhatsAppWebPlugin(config, process.env)`.
+- **Verification** - 5 new store tests. 165 tests pass, `tsc --noEmit` clean. No adapter-level sweep test: the sweep runs only against a real WhatsApp Web load (no fake yet); the module-imports and bundled-plugins suites cover wiring.
+- **Note** - `chatLimit`/`messageLimitPerChat` config supported but not yet in env/config plumbing; defaults 50/50. Add when the default sweep is too slow.
+
 ## 2026-08-12 - WhatsApp session revoked (LOGOUT): ready-email storm, crash, then systemd restart
 
 - **Symptoms** (prod `message-hub-2`, journal 2026-08-12): 8× `authenticated` + 8× `ready` + 8× ready-notification emails at 04:20:44-51; `disconnected: LOGOUT` at 04:21:06; crash at 04:21:45 with `Failed to add page binding with name onQRChangedEvent: window['onQRChangedEvent'] already exists!`; systemd restart at 04:22:48. Evening: one WhatsApp send failed with `Cannot read properties of undefined (reading 'getChat')` (caught, logged, no crash).

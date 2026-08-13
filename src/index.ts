@@ -40,7 +40,7 @@ async function start(): Promise<void> {
     createLoggerPlugin(logger),
     createEmailPlugin(config, process.env),
     createThreadStorePlugin(config, process.env),
-    createWhatsAppWebPlugin(config),
+    createWhatsAppWebPlugin(config, process.env),
     createWhatsAppEmailBridgePlugin(config),
     ...(config.emailToWhatsapp.enabled
       ? [createEmailCommandToWhatsAppPlugin(config)]
