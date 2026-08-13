@@ -81,6 +81,41 @@ describe("WhatsAppWebChannel", () => {
     expect(log.mock.calls.flat().join("\n").match(/Waiting to be linked/g)).toHaveLength(2);
   });
 
+  it("sends the ready notification email once despite repeated ready events", async () => {
+    const log = vi.spyOn(console, "log").mockImplementation(() => {});
+    const notifier = new FakeEmailSender();
+    const channel = new WhatsAppWebChannel({
+      phoneNumber: "12025550108",
+      readyNotification: {
+        sender: notifier,
+        from: "bot@example.com",
+        to: "owner@example.com",
+      },
+    });
+
+    await channel.start();
+    const client = whatsappMock.clients[0];
+    client?.handlers.get("ready")?.();
+    client?.handlers.get("ready")?.();
+    client?.handlers.get("ready")?.();
+
+    expect(notifier.sent).toHaveLength(1);
+  });
+
+  it("exits the process when the client disconnects", async () => {
+    const log = vi.spyOn(console, "log").mockImplementation(() => {});
+    const exit = vi
+      .spyOn(process, "exit")
+      .mockImplementation((() => {}) as never);
+    const channel = new WhatsAppWebChannel({ phoneNumber: "12025550108" });
+
+    await channel.start();
+    whatsappMock.clients[0]?.handlers.get("disconnected")?.("LOGOUT");
+
+    expect(exit).toHaveBeenCalledWith(1);
+    expect(log.mock.calls.flat().join("\n")).toContain("Client disconnected: LOGOUT");
+  });
+
   it("requests pairing codes through the WhatsAppPairing port", async () => {
     const channel = new WhatsAppWebChannel({ phoneNumber: "12025550108" });
 

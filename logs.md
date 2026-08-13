@@ -1,5 +1,14 @@
 # Logs
 
+## 2026-08-12 - WhatsApp session revoked (LOGOUT): ready-email storm, crash, then systemd restart
+
+- **Symptoms** (prod `message-hub-2`, journal 2026-08-12): 8× `authenticated` + 8× `ready` + 8× ready-notification emails at 04:20:44-51; `disconnected: LOGOUT` at 04:21:06; crash at 04:21:45 with `Failed to add page binding with name onQRChangedEvent: window['onQRChangedEvent'] already exists!`; systemd restart at 04:22:48. Evening: one WhatsApp send failed with `Cannot read properties of undefined (reading 'getChat')` (caught, logged, no crash).
+- **Root cause - WhatsApp revoked the session.** The 8× sync storm + LOGOUT is the signature of server-side session invalidation (device kicked), not a user action. The user did nothing; likely WhatsApp invalidating the unofficial web client after the July 2026 web update (the same update that renamed `id._serialized` → `id.$1`, see 07-24 entry). Cannot be fixed in code; re-link with a pairing code after restart.
+- **Defect 1: ready-email storm.** whatsapp-web.js re-emits `authenticated` AND `ready` on every socket `hasSynced`; `sendReadyNotification` fired once per `ready` → 8 emails in ~2s. Fix: guard `readyNotificationSent` (set *before* the SMTP await so concurrent `ready` events can't both pass).
+- **Defect 2: crash on logout.** The library re-runs `inject()` on every `framenavigated`; after logout, two concurrent `inject()` calls race in `exposeFunctionIfAbsent('onQRChangedEvent')` (check-then-act) → puppeteer throws `window['onQRChangedEvent'] already exists!` → unhandled rejection → node exits. Fix: on `disconnected`, log a clear "re-link" message and `process.exit(1)` immediately, so systemd starts a clean client before the 39s post-logout race can fire.
+- **Defect 3 (transient): `reading 'getChat'` on undefined.** `window.WWebJS` is undefined in the page between a navigation and the library's re-inject; a send landing in that gap throws. Handled (no crash), but email 383 was not delivered. Not fixed here; note the `@lid` target chat id.
+- **Verification** - 2 new adapter tests (ready email once despite repeated `ready`; process exits on `disconnected`). 153 tests pass, `tsc --noEmit` clean.
+
 ## 2026-08-09 - Stage deploys now pull a prebuilt GHCR image instead of building on the VM
 
 - **Why** - Every stage deploy was failing at the *first* `git` call on the VM: the Debian 13 image ships no git, `set -euo pipefail` killed the startup script before `docker compose` was ever reached. Diagnosed via Cloud Logging (`logName:"syslog" AND "message-hub-stage-deploy"`) once correct IAM was granted to the VM's service account (`1023328382892-compute@developer.gserviceaccount.com`); swap + deadline bumps (`ee09dad`, `e5ed1df`) were never the true blocker.

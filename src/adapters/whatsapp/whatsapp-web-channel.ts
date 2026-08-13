@@ -107,6 +107,8 @@ implements InboundChannel, WhatsAppSender, WhatsAppChatSender, WhatsAppPairing {
   private groupInviteHandler?: WhatsAppGroupInviteHandler;
   private pairingCodeRequests = 0;
   private awaitingLinkLogged = false;
+  private readyNotificationSent = false;
+  private sessionEndHandled = false;
   private deliveryQueue: Array<(status: DeliveryStatus) => void> = [];
 
   constructor(config: WhatsAppWebChannelConfig) {
@@ -155,7 +157,18 @@ implements InboundChannel, WhatsAppSender, WhatsAppChatSender, WhatsAppPairing {
     });
 
     this.client.on("disconnected", reason => {
-      logWhatsApp(`Client disconnected: ${formatError(reason)}`);
+      if (this.sessionEndHandled) return;
+      this.sessionEndHandled = true;
+      const reasonText = formatError(reason);
+      logWhatsApp(
+        `Client disconnected: ${reasonText}. The WhatsApp session ended; restarting the service so a fresh client can re-link. Request a pairing code once it is back up.`,
+      );
+      // ponytail: whatsapp-web.js re-runs its own inject() after the logout
+      // navigation and TWO concurrent calls race in exposeFunctionIfAbsent,
+      // rejecting with `onQRChangedEvent already exists` (seen 2026-08-12, ~39s
+      // after a LOGOUT). Exit now so systemd restarts a clean client instead of
+      // dying on that cryptic unhandled rejection.
+      process.exit(1);
     });
 
     this.client.on("change_state", state => {
@@ -306,6 +319,12 @@ implements InboundChannel, WhatsAppSender, WhatsAppChatSender, WhatsAppPairing {
 
   private async sendReadyNotification(): Promise<void> {
     if (!this.readyNotification) return;
+    // whatsapp-web.js re-emits `ready` on every socket re-sync, so without this
+    // guard a reconnect storm sends a stack of `ready` emails (seen 2026-08-12:
+    // 8 emails in ~2s). Flagged before the await so concurrent ready events
+    // cannot both sneak in while the first SMTP send is in flight.
+    if (this.readyNotificationSent) return;
+    this.readyNotificationSent = true;
 
     try {
       await this.readyNotification.sender.send({
