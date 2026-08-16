@@ -11,6 +11,9 @@ import type {
 import type { EmailAutomationBatch } from "../use-cases/process-email-automations.js";
 import type { CapabilityName } from "../core/plugin-runtime.js";
 
+export { formatError } from "../errors.js";
+export { parseSubjectCommand } from "../use-cases/process-email-automations.js";
+
 export const capabilities = {
   appLogger: "app.logger",
   emailInbox: "email.receive",
