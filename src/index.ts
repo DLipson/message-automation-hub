@@ -14,8 +14,6 @@ import {
 } from "./plugins/providers.js";
 import { createWhatsAppEmailBridgePlugin } from "./plugins/workflows/whatsapp-email-bridge.js";
 import type { WhatsAppPairing } from "./ports/whatsapp-sender.js";
-import type { InboundChannel } from "./ports/inbound-channel.js";
-import type { EmailInbox } from "./ports/email-inbox.js";
 import { reportStartupFailure } from "./startup.js";
 import { ProcessEmailAutomations } from "./use-cases/process-email-automations.js";
 
@@ -37,14 +35,14 @@ async function start(): Promise<void> {
     createLoggerPlugin(logger),
     createEmailPlugin(config, process.env),
     createThreadStorePlugin(config, process.env),
-    createWhatsAppWebPlugin(config),
+    createWhatsAppWebPlugin(config, process.env),
     createWhatsAppEmailBridgePlugin(config, process.env),
-  ], config as Record<string, unknown>);
-  const whatsapp = pluginContext.require<InboundChannel>(capabilities.whatsappInbound);
+  ]);
+  const whatsapp = pluginContext.require(capabilities.whatsappInbound);
 
   const whatsappStart = whatsapp.start();
   startControlServer(
-    pluginContext.require<WhatsAppPairing>(capabilities.whatsappPairing),
+    pluginContext.require(capabilities.whatsappPairing),
     process.env,
   );
   try {
@@ -58,7 +56,7 @@ async function start(): Promise<void> {
     return;
   }
 
-  const inbox = pluginContext.require<EmailInbox>(capabilities.emailInbox);
+  const inbox = pluginContext.require(capabilities.emailInbox);
   const poller = new EmailToWhatsAppPoller(
     new ProcessEmailAutomations(inbox, pluginContext),
     inbox,

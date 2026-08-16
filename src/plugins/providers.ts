@@ -9,14 +9,17 @@ import {
 } from "../adapters/email/json-whatsapp-email-thread-store.js";
 import { SmtpEmailSender } from "../adapters/email/smtp-email-sender.js";
 import type { AppLogger } from "../ports/app-logger.js";
-import type { EmailSender } from "../ports/email-sender.js";
 import { WhatsAppWebChannel } from "../adapters/whatsapp/whatsapp-web-channel.js";
+import {
+  defaultWhatsAppCatchUpStorePath,
+  JsonWhatsAppCatchUpStore,
+} from "../adapters/whatsapp/json-whatsapp-catch-up-store.js";
 import { dirname, join } from "node:path";
 
 export function createLoggerPlugin(logger: AppLogger): HubPlugin {
   return {
-    name: "logger",
-    onLoad(ctx) {
+    id: "logger",
+    register(ctx) {
       ctx.provide(capabilities.appLogger, logger);
     },
   };
@@ -24,8 +27,8 @@ export function createLoggerPlugin(logger: AppLogger): HubPlugin {
 
 export function createEmailPlugin(config: AppConfig, env: NodeJS.ProcessEnv = process.env): HubPlugin {
   return {
-    name: "email",
-    onLoad(ctx) {
+    id: "email",
+    register(ctx) {
       const inbox = new ImapEmailInbox({
         ...config.imap,
         checkpointPath: env.IMAP_CHECKPOINT_FILE ?? join(
@@ -47,8 +50,8 @@ export function createThreadStorePlugin(
   env: NodeJS.ProcessEnv,
 ): HubPlugin {
   return {
-    name: "thread-store",
-    onLoad(ctx) {
+    id: "thread-store",
+    register(ctx) {
       ctx.provide(capabilities.threadStore, new JsonWhatsAppEmailThreadStore(
         defaultWhatsAppEmailThreadStorePath(env),
         { messageIdDomain: config.email.messageIdDomain },
@@ -57,16 +60,24 @@ export function createThreadStorePlugin(
   };
 }
 
-export function createWhatsAppWebPlugin(config: AppConfig): HubPlugin {
+export function createWhatsAppWebPlugin(
+  config: AppConfig,
+  env: NodeJS.ProcessEnv = process.env,
+): HubPlugin {
   return {
-    name: "whatsapp-web",
-    onLoad(ctx) {
+    id: "whatsapp-web",
+    register(ctx) {
       const emailSender = ctx.has(capabilities.emailSender)
-        ? ctx.require<EmailSender>(capabilities.emailSender)
+        ? ctx.require(capabilities.emailSender)
         : undefined;
 
       const whatsapp = new WhatsAppWebChannel({
         ...config.whatsapp,
+        catchUp: {
+          store: new JsonWhatsAppCatchUpStore(
+            defaultWhatsAppCatchUpStorePath(env),
+          ),
+        },
         ...(emailSender
           ? {
               readyNotification: {

@@ -10,6 +10,7 @@ import type {
 } from "../ports/whatsapp-sender.js";
 import type { InboundChannel, InboundMessageHandler } from "../ports/inbound-channel.js";
 import type { WhatsAppEmailThread, WhatsAppEmailThreadStore } from "../use-cases/whatsapp-email-thread-store.js";
+import type { CapabilityName } from "../core/plugin-runtime.js";
 
 export const capabilities = {
   appLogger: "app.logger",
@@ -22,7 +23,9 @@ export const capabilities = {
   whatsappInbound: "whatsapp.receive",
   whatsappPairing: "whatsapp.pairing",
   whatsappSender: "whatsapp.send",
-} as const satisfies Record<string, string>;
+} as const satisfies Record<string, CapabilityName>;
+
+export type { Capabilities, CapabilityName, HubPlugin, PluginContext } from "../core/plugin-runtime.js";
 
 export type { InboundEmail, MediaAttachment };
 export type { ContactRef, InboundMessage };
@@ -36,20 +39,3 @@ export type {
 export type { InboundChannel, InboundMessageHandler };
 export type { WhatsAppEmailThread, WhatsAppEmailThreadStore };
 export type { EmailAutomationBatch, EmailAutomationHandler } from "../use-cases/process-email-automations.js";
-
-export interface PluginContext {
-  provide<T>(name: string, capability: T): void;
-  require<T>(name: string): T;
-  has(name: string): boolean;
-  on(event: string, handler: (...args: any[]) => boolean | Promise<boolean>): void;
-  emit(event: string, payload: unknown): Promise<boolean>;
-  hasListeners(event: string): boolean;
-  config: Record<string, unknown>;
-  formatError(err: unknown): string;
-  parseSubjectCommand(subject: string, prefix: string): string | null;
-}
-
-export interface HubPlugin {
-  name: string;
-  onLoad(ctx: PluginContext): void | Promise<void>;
-}

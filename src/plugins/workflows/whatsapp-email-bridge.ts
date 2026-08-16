@@ -9,44 +9,37 @@ import { AcceptGroupInviteByEmail } from "../../use-cases/accept-group-invite-by
 import { ForwardMessageToEmail } from "../../use-cases/forward-message-to-email.js";
 import { ReplyEmailToWhatsApp } from "../../use-cases/reply-email-to-whatsapp.js";
 import type { AppLogger } from "../../ports/app-logger.js";
-import type { EmailInbox } from "../../ports/email-inbox.js";
-import type { EmailSender } from "../../ports/email-sender.js";
-import type { InboundChannel } from "../../ports/inbound-channel.js";
-import type { WhatsAppChatSender } from "../../ports/whatsapp-sender.js";
-import type { WhatsAppEmailThreadStore } from "../../use-cases/whatsapp-email-thread-store.js";
 
 export function createWhatsAppEmailBridgePlugin(
   config: AppConfig,
   env: NodeJS.ProcessEnv = process.env,
 ): HubPlugin {
   return {
-    name: "whatsapp-email-bridge",
-    onLoad(ctx) {
-      const logger = ctx.require<AppLogger>(capabilities.appLogger);
-      const threadStore = ctx.require<WhatsAppEmailThreadStore>(
-        capabilities.threadStore,
-      );
+    id: "whatsapp-email-bridge",
+    register(ctx) {
+      const logger = ctx.require(capabilities.appLogger);
+      const threadStore = ctx.require(capabilities.threadStore);
       const forwardMessageToEmail = new ForwardMessageToEmail(
-        ctx.require<EmailSender>(capabilities.emailSender),
+        ctx.require(capabilities.emailSender),
         { ...config.email, threadStore },
         logger,
       );
 
-      ctx.require<InboundChannel>(capabilities.whatsappInbound)
+      ctx.require(capabilities.whatsappInbound)
         .onMessage(message => forwardMessageToEmail.handle(message));
 
       if (!config.emailToWhatsapp.enabled) {
         return;
       }
 
-      const whatsappInbound = ctx.require<InboundChannel>(capabilities.whatsappInbound);
+      const whatsappInbound = ctx.require(capabilities.whatsappInbound);
 
       const inviteHandler = new AcceptGroupInviteByEmail(
-        ctx.require<EmailInbox>(capabilities.emailInbox),
-        ctx.require<EmailSender>(capabilities.emailSender),
+        ctx.require(capabilities.emailInbox),
+        ctx.require(capabilities.emailSender),
         threadStore,
         new JsonPendingGroupInviteStore(defaultPendingGroupInviteStorePath(env)),
-        ctx.require<WhatsAppChatSender>(capabilities.whatsappChatSender),
+        ctx.require(capabilities.whatsappChatSender),
         {
           ownerEmail: config.email.to,
           from: config.email.from,
@@ -62,14 +55,14 @@ export function createWhatsAppEmailBridgePlugin(
       ctx.on("email.received", ({ email, batch }) => inviteHandler.handle(email, batch));
 
       const replyHandler = new ReplyEmailToWhatsApp(
-        ctx.require<EmailInbox>(capabilities.emailInbox),
-        ctx.require<WhatsAppChatSender>(capabilities.whatsappChatSender),
+        ctx.require(capabilities.emailInbox),
+        ctx.require(capabilities.whatsappChatSender),
         threadStore,
         logger,
         {
           ignoreFrom: config.email.from,
           failureNotification: {
-            sender: ctx.require<EmailSender>(capabilities.emailSender),
+            sender: ctx.require(capabilities.emailSender),
             from: config.email.from,
             to: config.email.to,
           },

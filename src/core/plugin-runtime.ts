@@ -6,10 +6,21 @@ import type { InboundChannel } from "../ports/inbound-channel.js";
 import type { WhatsAppChatSender, WhatsAppPairing, WhatsAppSender } from "../ports/whatsapp-sender.js";
 import type { EmailAutomationBatch } from "../use-cases/process-email-automations.js";
 import type { WhatsAppEmailThreadStore } from "../use-cases/whatsapp-email-thread-store.js";
-import { errorMessage } from "../errors.js";
-import { parseSubjectCommand } from "../use-cases/process-email-automations.js";
-import type { PluginContext, HubPlugin } from "../api/index.js";
 
+/**
+ * Every capability name paired with the contract behind it. This is the one
+ * place the pairing is written down, so provide()/require() can check it
+ * instead of trusting a caller-supplied type argument.
+ *
+ * Plugins shipped from other repositories add their own entries by augmenting
+ * this interface:
+ *
+ *     declare module "@message-automation/core/core/plugin-runtime.js" {
+ *       interface Capabilities {
+ *         "ynab.budget": YnabBudget;
+ *       }
+ *     }
+ */
 export interface Capabilities {
   "app.logger": AppLogger;
   "email.labels": EmailLabeler;
@@ -32,72 +43,110 @@ export interface EventMap {
 export type EventName = keyof EventMap;
 export type EventHandler<E extends EventName> = (payload: EventMap[E]) => Promise<boolean>;
 
-function assertName(value: string, label: string): string {
-  const name = value.trim();
-  if (!name) throw new Error(`${label} is required.`);
-  return name;
-}
+export type HubPlugin = {
+  id: string;
+  requires?: CapabilityName[];
+  register(context: PluginContext): void | Promise<void>;
+};
 
-export function createPluginContext(pluginConfig: Record<string, unknown> = {}): PluginContext {
-  const caps = new Map<string, unknown>();
+export type PluginContext = {
+  provide<K extends CapabilityName>(name: K, capability: Capabilities[K]): void;
+  require<K extends CapabilityName>(name: K): Capabilities[K];
+  has(name: CapabilityName): boolean;
+  on<E extends EventName>(event: E, handler: EventHandler<E>): void;
+  emit<E extends EventName>(event: E, payload: EventMap[E]): Promise<boolean>;
+  hasListeners(event: EventName): boolean;
+};
+
+export function createPluginContext(): PluginContext {
+  const capabilities = new Map<string, unknown>();
   const handlers = new Map<string, Array<(payload: unknown) => Promise<boolean>>>();
 
   return {
-    provide(name, capability) {
-      const key = assertName(name, "Capability name");
-      if (caps.has(key)) throw new Error(`Capability "${key}" has already been provided.`);
-      caps.set(key, capability);
+    provide<K extends CapabilityName>(name: K, capability: Capabilities[K]): void {
+      const key = requiredName(name, "Capability name");
+
+      if (capabilities.has(key)) {
+        throw new Error(`Capability "${key}" has already been provided.`);
+      }
+
+      capabilities.set(key, capability);
     },
-    require(name) {
-      const key = assertName(name, "Capability name");
-      if (!caps.has(key)) throw new Error(`Capability "${key}" not provided.`);
-      return caps.get(key) as any;
+
+    require<K extends CapabilityName>(name: K): Capabilities[K] {
+      const key = requiredName(name, "Capability name");
+
+      if (!capabilities.has(key)) {
+        throw new Error(`Capability "${key}" has not been provided.`);
+      }
+
+      return capabilities.get(key) as Capabilities[K];
     },
-    has(name) { return caps.has(assertName(name, "Capability name")); },
-    on(event, handler) {
-      const key = assertName(event, "Event name");
+
+    has(name: CapabilityName): boolean {
+      return capabilities.has(requiredName(name, "Capability name"));
+    },
+
+    on<E extends EventName>(event: E, handler: EventHandler<E>): void {
+      const key = requiredName(event, "Event name");
       const list = handlers.get(key) ?? [];
-      list.push(handler as any);
+      list.push(handler as (payload: unknown) => Promise<boolean>);
       handlers.set(key, list);
     },
-    async emit(event, payload) {
-      const key = assertName(event, "Event name");
+
+    async emit<E extends EventName>(event: E, payload: EventMap[E]): Promise<boolean> {
+      const key = requiredName(event, "Event name");
+
       for (const handler of [...(handlers.get(key) ?? [])]) {
-        if (await handler(payload)) return true;
+        if (await handler(payload)) {
+          return true;
+        }
       }
+
       return false;
     },
-    hasListeners(event) {
-      return (handlers.get(assertName(event, "Event name"))?.length ?? 0) > 0;
+
+    hasListeners(event: EventName): boolean {
+      return (handlers.get(requiredName(event, "Event name"))?.length ?? 0) > 0;
     },
-    config: pluginConfig,
-    formatError: (err) => errorMessage(err),
-    parseSubjectCommand: (subject, prefix) => parseSubjectCommand(subject, prefix),
   };
 }
 
 export async function registerPlugins(
   plugins: HubPlugin[],
-  contextOrConfig: PluginContext | Record<string, unknown> = {},
+  context: PluginContext = createPluginContext(),
 ): Promise<PluginContext> {
-  const context = isPluginContext(contextOrConfig)
-    ? contextOrConfig
-    : createPluginContext(contextOrConfig);
-  const registered = new Set<string>();
+  const registeredPluginIds = new Set<string>();
+
   for (const plugin of plugins) {
-    const name = assertName(plugin.name, "Plugin name");
-    if (registered.has(name)) throw new Error(`Duplicate plugin "${name}".`);
-    registered.add(name);
-    await plugin.onLoad(context);
+    const pluginId = requiredName(plugin.id, "Plugin id");
+
+    if (registeredPluginIds.has(pluginId)) {
+      throw new Error(`Duplicate plugin id "${pluginId}".`);
+    }
+
+    registeredPluginIds.add(pluginId);
+
+    for (const capability of plugin.requires ?? []) {
+      if (!context.has(capability)) {
+        throw new Error(
+          `Plugin "${pluginId}" requires missing capability "${capability}".`,
+        );
+      }
+    }
+
+    await plugin.register(context);
   }
+
   return context;
 }
 
-function isPluginContext(value: unknown): value is PluginContext {
-  return (
-    typeof value === "object" &&
-    value !== null &&
-    typeof (value as PluginContext).provide === "function" &&
-    typeof (value as PluginContext).require === "function"
-  );
+function requiredName(value: string, label: string): string {
+  const name = value.trim();
+
+  if (!name) {
+    throw new Error(`${label} is required.`);
+  }
+
+  return name;
 }
