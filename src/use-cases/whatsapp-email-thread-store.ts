@@ -1,4 +1,5 @@
 import { appDefaults } from "../config.js";
+import type { InboundEmail } from "../domain/email.js";
 
 export const replyMarker = "--- Reply above this line ---";
 
@@ -46,6 +47,38 @@ export function forwardedMessageId(
   whatsappMessageId: string,
 ): string {
   return `<wa.${thread.token}.${safeMessageIdPart(whatsappMessageId)}@${messageIdDomainFor(thread)}>`;
+}
+
+export async function threadForEmail(
+  threads: WhatsAppEmailThreadStore,
+  email: InboundEmail,
+): Promise<WhatsAppEmailThread | null> {
+  const subjectToken = tokenFromSubject(email.subject);
+
+  if (subjectToken) {
+    const thread = await threads.findByToken(subjectToken);
+
+    if (thread) {
+      return thread;
+    }
+  }
+
+  for (const messageId of [email.inReplyTo, ...(email.references ?? [])]) {
+    if (!messageId) {
+      continue;
+    }
+
+    const token = tokenFromMessageId(messageId);
+    const thread = token
+      ? await threads.findByToken(token)
+      : await threads.findByMessageId(messageId);
+
+    if (thread) {
+      return thread;
+    }
+  }
+
+  return null;
 }
 
 function safeMessageIdPart(value: string): string {

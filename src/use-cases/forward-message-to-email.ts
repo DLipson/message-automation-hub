@@ -1,16 +1,13 @@
 import type { InboundMessage } from "../domain/message.js";
 import type { MediaAttachment } from "../domain/media.js";
 import type { AppLogger } from "../ports/app-logger.js";
+import { silentLogger } from "../ports/app-logger.js";
 import type { EmailSender } from "../ports/email-sender.js";
 import {
   forwardedMessageId,
   replyMarker,
   type WhatsAppEmailThreadStore,
 } from "./whatsapp-email-thread-store.js";
-
-const silentLogger: AppLogger = {
-  info() {},
-};
 
 const maxAttachments = 5;
 const receivedAtFormatter = new Intl.DateTimeFormat("en-GB", {

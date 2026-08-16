@@ -3,6 +3,7 @@ import { appDefaults } from "../config.js";
 import type { InboundEmail } from "../domain/email.js";
 import { formatError } from "../errors.js";
 import type { AppLogger } from "../ports/app-logger.js";
+import { silentLogger } from "../ports/app-logger.js";
 import type { EmailInbox } from "../ports/email-inbox.js";
 import type { EmailSender } from "../ports/email-sender.js";
 import type { WhatsAppChatSender, WhatsAppGroupInviteV4 } from "../ports/whatsapp-sender.js";
@@ -13,15 +14,12 @@ import type {
 import type { EmailAutomationHandler } from "./process-email-automations.js";
 import {
   replyTextFor,
+  threadForEmail,
   tokenFromMessageId,
   tokenFromSubject,
   type WhatsAppEmailThread,
   type WhatsAppEmailThreadStore,
 } from "./whatsapp-email-thread-store.js";
-
-const silentLogger: AppLogger = {
-  info() {},
-};
 
 const inviteLinkPattern = /https?:\/\/chat\.whatsapp\.com\/([A-Za-z0-9_-]+)/;
 
@@ -152,7 +150,7 @@ export class AcceptGroupInviteByEmail implements EmailAutomationHandler {
     email: InboundEmail,
     inviteCode: string,
   ): Promise<void> {
-    const thread = await this.threadFor(email);
+    const thread = await threadForEmail(this.threads, email);
     const token = thread?.token ?? this.newToken();
     await this.pending.put(token, { inviteCode });
 
@@ -200,34 +198,6 @@ export class AcceptGroupInviteByEmail implements EmailAutomationHandler {
 
       if (token && await this.pending.findByToken(token)) {
         return token;
-      }
-    }
-
-    return null;
-  }
-
-  private async threadFor(email: InboundEmail): Promise<WhatsAppEmailThread | null> {
-    const subjectToken = tokenFromSubject(email.subject);
-
-    if (subjectToken) {
-      const thread = await this.threads.findByToken(subjectToken);
-      if (thread) {
-        return thread;
-      }
-    }
-
-    for (const messageId of [email.inReplyTo, ...(email.references ?? [])]) {
-      if (!messageId) {
-        continue;
-      }
-
-      const token = tokenFromMessageId(messageId);
-      const thread = token
-        ? await this.threads.findByToken(token)
-        : await this.threads.findByMessageId(messageId);
-
-      if (thread) {
-        return thread;
       }
     }
 

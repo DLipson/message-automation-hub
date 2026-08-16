@@ -1,6 +1,7 @@
 import type { InboundEmail } from "../domain/email.js";
 import { formatError } from "../errors.js";
 import type { AppLogger } from "../ports/app-logger.js";
+import { silentLogger } from "../ports/app-logger.js";
 import type { EmailInbox } from "../ports/email-inbox.js";
 import type { EmailSender } from "../ports/email-sender.js";
 import type { WhatsAppChatSender } from "../ports/whatsapp-sender.js";
@@ -10,15 +11,10 @@ import type {
 } from "./process-email-automations.js";
 import {
   replyTextFor,
-  tokenFromMessageId,
-  tokenFromSubject,
+  threadForEmail,
   type WhatsAppEmailThread,
   type WhatsAppEmailThreadStore,
 } from "./whatsapp-email-thread-store.js";
-
-const silentLogger: AppLogger = {
-  info() {},
-};
 
 export type ReplyEmailToWhatsAppOptions = {
   ignoreFrom?: string;
@@ -46,7 +42,7 @@ export class ReplyEmailToWhatsApp implements EmailAutomationHandler {
       return false;
     }
 
-    const thread = await this.threadFor(email);
+    const thread = await threadForEmail(this.threads, email);
 
     if (!thread) {
       return false;
@@ -134,34 +130,5 @@ export class ReplyEmailToWhatsApp implements EmailAutomationHandler {
         `Could not send reply failure notice for email ${email.id}: ${formatError(notificationError)}`,
       );
     }
-  }
-
-  private async threadFor(email: InboundEmail): Promise<WhatsAppEmailThread | null> {
-    const subjectToken = tokenFromSubject(email.subject);
-
-    if (subjectToken) {
-      const thread = await this.threads.findByToken(subjectToken);
-
-      if (thread) {
-        return thread;
-      }
-    }
-
-    for (const messageId of [email.inReplyTo, ...(email.references ?? [])]) {
-      if (!messageId) {
-        continue;
-      }
-
-      const token = tokenFromMessageId(messageId);
-      const thread = token
-        ? await this.threads.findByToken(token)
-        : await this.threads.findByMessageId(messageId);
-
-      if (thread) {
-        return thread;
-      }
-    }
-
-    return null;
   }
 }

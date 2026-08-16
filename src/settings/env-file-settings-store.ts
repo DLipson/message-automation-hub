@@ -1,3 +1,4 @@
+import { randomBytes } from "node:crypto";
 import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import { dirname } from "node:path";
 import { parseEnv } from "node:util";
@@ -28,7 +29,7 @@ export class EnvFileSettingsStore {
   async write(settings: AppSettings): Promise<void> {
     await mkdir(dirname(this.filePath), { recursive: true });
 
-    const tempPath = `${this.filePath}.tmp`;
+    const tempPath = `${this.filePath}.${process.pid}.${Date.now()}.${randomBytes(6).toString("hex")}.tmp`;
     await writeFile(tempPath, this.serialize(settings), "utf8");
     await rename(tempPath, this.filePath);
   }

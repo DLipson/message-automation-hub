@@ -1,3 +1,4 @@
+import { randomBytes } from "node:crypto";
 import { chmod, mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import { dirname } from "node:path";
 import { isFileMissing } from "../../errors.js";
@@ -47,7 +48,7 @@ export class FileSecretStore implements SecretStore {
   private async writeSecrets(secrets: SecretFile): Promise<void> {
     await mkdir(dirname(this.filePath), { recursive: true });
 
-    const tempPath = `${this.filePath}.tmp`;
+    const tempPath = `${this.filePath}.${process.pid}.${Date.now()}.${randomBytes(6).toString("hex")}.tmp`;
     await writeFile(tempPath, `${JSON.stringify(secrets, null, 2)}\n`, "utf8");
     await chmod(tempPath, 0o600);
     await rename(tempPath, this.filePath);
