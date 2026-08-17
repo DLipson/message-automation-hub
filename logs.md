@@ -1,5 +1,15 @@
 # Logs
 
+## 2026-08-17 - Prod stuck-window (OPENING) ate a command email + missed WhatsApp messages
+
+- **Incident** (master `message-hub-2`, journal): the WhatsApp Web page went `State changed: OPENING` at 10:38 UTC and stayed wedged until a manual `systemctl restart` at 15:46 UTC. During the window nothing was received; afterwards the re-sync replayed only *some* pending messages (Ori's text arrived 40 min late; a link/video message was never replayed).
+- **Lost command email** - `wa:` email 401 was `markProcessed` (forward-email-to-whatsapp.ts) then wedged in `ensureChatForPhoneNumber` → `pupPage.evaluate` outside any timeout → permanently lost. This is THE bug: a hung page makes the send hang forever with no log.
+- **Catch-up sweep failed** - 7s after `ready`, `getChats()` (puppeteer evaluate) threw `r: r`; the sweep aborted once and never retried (`runCatchUpIfPending` only runs on `ready`, no backoff). Messages inside the stuck window beyond the re-sync replay were therefore never recovered.
+- **Fix (committed on master `6caa0d4` AND stage `9d572ab`)** - `sendMessage`/`sendImage` now wrap `ensureChatForPhoneNumber` in the existing `sendWithContext` (90s `withTimeout` + clear error), so a hung page becomes a logged+notified failure that surfaces in `markFailedAndNotify` instead of an eternal wedge. New adapter test: hung `pupPage.evaluate` → `Chat lookup for <phone> failed` after `sendTimeoutMs`. 25 (master) / 26 (stage) channel tests pass, typecheck clean.
+- **Still open** - (a) catch-up sweep needs a retry/backoff when `getChats()` fails right after `ready` ("r: r" case); (b) unknown chats sweep from the `initialized` baseline, not the newest watermark, or any first-contact message during an offline/stuck window is unrecoverable. Not yet implemented, awaiting sign-off.
+- **Staging VM `message-hub-stage` is under memory pressure** - repeated `systemd-journald: Under memory pressure, flushing caches.` and `virtio_balloon: Out of puff! Can't get 1 pages` (guest could not be granted more ballooned pages = at memory ceiling). Likely why the staging container never reliably picks up WhatsApp (Chromium OOM-starved). Confirm `free -h`/`docker stats` when IAP/gcloud access returns (gcloud blocked 2026-08-17 evening by NetFree CA: expired `NetFree Sign, 019` leaf breaks Python cert verify, `_ssl.c:1081`).
+- **Evidence breadcrumb** - catch-up store `/home/opc/secrets/message-automation-hub/whatsapp-catch-up.json` (watermarks per `@lid` chat); master env at `/etc/message-automation-hub/control.env` + `~/secrets/message-automation-hub/.env`; ready email `Sent ready notification email` 15:50:24 UTC.
+
 ## 2026-08-16 - Merge master into stage; unify the PluginContext definitions
 
 - **Goal** - Make stage a superset of master (catch-up sweep, unlinked fail-fast) while landing the Obsidian-style external plugin model on top of one typed plugin runtime.
