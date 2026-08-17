@@ -9,6 +9,9 @@ const whatsappMock = vi.hoisted(() => {
     readonly requestPairingCode = vi.fn(async () => "123456");
     readonly getNumberId = vi.fn(async () => ({ _serialized: "12025550108@c.us" }));
     readonly sendMessage = vi.fn(async () => ({ id: "sent" }));
+    pupPage?: {
+      evaluate: (...args: unknown[]) => Promise<unknown>;
+    };
 
     constructor() {
       clients.push(this);
@@ -158,6 +161,24 @@ describe("WhatsAppWebChannel", () => {
       channel.sendChatMessage({ chatId: "1@c.us", text: "hi" }),
     ).resolves.toBeDefined();
     expect(client?.sendMessage).toHaveBeenCalledWith("1@c.us", "hi");
+  });
+
+  it("times out a hung chat lookup instead of hanging the send forever", async () => {
+    const channel = new WhatsAppWebChannel({
+      phoneNumber: "12025550108",
+      sendTimeoutMs: 50,
+    });
+
+    await channel.start();
+    const client = whatsappMock.clients[0];
+    client?.handlers.get("ready")?.();
+    client!.pupPage = {
+      evaluate: () => new Promise(() => {}),
+    };
+
+    await expect(
+      channel.sendMessage({ phoneNumber: "12025550109", text: "hi" }),
+    ).rejects.toThrow("Chat lookup for 12025550109 failed");
   });
 
   it("notifies once per unlinked window when sends are attempted", async () => {
