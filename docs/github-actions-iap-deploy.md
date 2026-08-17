@@ -20,7 +20,7 @@ Staging (optional):
 
 ```text
 project: project-f57c5350-09b6-46d6-957
-instance: message-hub-staging
+instance: message-hub-stage
 zone: us-central1-a
 ```
 
@@ -126,7 +126,7 @@ The `master` branch targets the prod VM (`GCP_INSTANCE`/`GCP_ZONE`); the `stage`
 ### Create the VM
 
 ```bash
-gcloud compute instances create message-hub-staging \
+gcloud compute instances create message-hub-stage \
   --project "$PROJECT_ID" \
   --zone "$ZONE" \
   --machine-type e2-small \
@@ -139,7 +139,7 @@ gcloud compute instances create message-hub-staging \
 The deploy script only handles git checkout + `docker compose up`. The VM must have Docker Engine + the Compose plugin installed once, ahead of the first deploy:
 
 ```bash
-gcloud compute ssh message-hub-staging --project "$PROJECT_ID" --zone "$ZONE" -- \
+gcloud compute ssh message-hub-stage --project "$PROJECT_ID" --zone "$ZONE" -- \
   'curl -fsSL https://get.docker.com | sh && sudo usermod -aG docker $USER'
 ```
 
@@ -160,7 +160,7 @@ gcloud iam workload-identity-pools providers update-oidc "$PROVIDER_ID" \
 
 ```bash
 gh variable set STAGING_GCP_ZONE --repo "$REPO" --body "$ZONE"
-gh variable set STAGING_GCP_INSTANCE --repo "$REPO" --body "message-hub-staging"
+gh variable set STAGING_GCP_INSTANCE --repo "$REPO" --body "message-hub-stage"
 ```
 
 `GCP_PROJECT_ID`, `GCP_SERVICE_ACCOUNT`, and `GCP_WORKLOAD_IDENTITY_PROVIDER` are shared with prod.
@@ -170,7 +170,7 @@ gh variable set STAGING_GCP_INSTANCE --repo "$REPO" --body "message-hub-staging"
 The first `docker compose up` on the VM creates `.env` from `.env.example` and an empty `secrets/secrets.json`. The bot will not fully run until you configure those on the VM:
 
 ```bash
-gcloud compute ssh message-hub-staging --project "$PROJECT_ID" --zone "$ZONE" -- \
+gcloud compute ssh message-hub-stage --project "$PROJECT_ID" --zone "$ZONE" -- \
   'cd /opt/message-automation-hub && sudo nano .env'
 ```
 
