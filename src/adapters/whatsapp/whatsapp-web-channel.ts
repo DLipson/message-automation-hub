@@ -297,7 +297,10 @@ implements InboundChannel, WhatsAppSender, WhatsAppChatSender, WhatsAppPairing {
 
   async sendMessage(message: WhatsAppDirectMessage): Promise<SentMessage> {
     this.ensureLinked();
-    const chatId = await this.ensureChatForPhoneNumber(message.phoneNumber);
+    const chatId = await this.sendWithContext(
+      this.ensureChatForPhoneNumber(message.phoneNumber),
+      `Chat lookup for ${message.phoneNumber}`,
+    );
     return this.sendChatMessage({ chatId, text: message.text });
   }
 
@@ -327,7 +330,10 @@ implements InboundChannel, WhatsAppSender, WhatsAppChatSender, WhatsAppPairing {
 
   async sendImage(message: WhatsAppDirectImage): Promise<SentMessage> {
     this.ensureLinked();
-    const chatId = await this.ensureChatForPhoneNumber(message.phoneNumber);
+    const chatId = await this.sendWithContext(
+      this.ensureChatForPhoneNumber(message.phoneNumber),
+      `Chat lookup for ${message.phoneNumber}`,
+    );
     const media = new MessageMedia(
       message.image.contentType,
       message.image.content.toString("base64"),
