@@ -41,6 +41,19 @@ describe("JsonWhatsAppCatchUpStore", () => {
     await expect(store.load()).resolves.toEqual(state);
   });
 
+  it("preserves the catch-up baseline through save and load", async () => {
+    const store = new JsonWhatsAppCatchUpStore(await tempPath("baseline.json"));
+    const state = {
+      initialized: true,
+      baseline: 1_780_000_000,
+      chats: {},
+    };
+
+    await store.save(state);
+
+    await expect(store.load()).resolves.toEqual(state);
+  });
+
   it("serializes concurrent saves so the last one wins", async () => {
     const filePath = await tempPath("state.json");
     const store = new JsonWhatsAppCatchUpStore(filePath);

@@ -9,6 +9,7 @@ const whatsappMock = vi.hoisted(() => {
     readonly requestPairingCode = vi.fn(async () => "123456");
     readonly getNumberId = vi.fn(async () => ({ _serialized: "12025550108@c.us" }));
     readonly sendMessage = vi.fn(async () => ({ id: "sent" }));
+    readonly getChats = vi.fn(async () => []);
     pupPage?: {
       evaluate: (...args: unknown[]) => Promise<unknown>;
     };
@@ -39,6 +40,7 @@ vi.mock("whatsapp-web.js", () => ({
 
 import type { EmailMessage, EmailSender } from "../src/ports/email-sender.js";
 import type { WhatsAppPairing } from "../src/ports/whatsapp-sender.js";
+import type { JsonWhatsAppCatchUpStore } from "../src/adapters/whatsapp/json-whatsapp-catch-up-store.js";
 import { WhatsAppWebChannel } from "../src/adapters/whatsapp/whatsapp-web-channel.js";
 
 class FakeEmailSender implements EmailSender {
@@ -51,6 +53,7 @@ class FakeEmailSender implements EmailSender {
 
 afterEach(() => {
   whatsappMock.clients.length = 0;
+  vi.useRealTimers();
   vi.restoreAllMocks();
 });
 
@@ -179,6 +182,33 @@ describe("WhatsAppWebChannel", () => {
     await expect(
       channel.sendMessage({ phoneNumber: "12025550109", text: "hi" }),
     ).rejects.toThrow("Chat lookup for 12025550109 failed");
+  });
+
+  it("retries the catch-up chat list instead of abandoning the sweep on a transient failure", async () => {
+    vi.useFakeTimers();
+    const log = vi.spyOn(console, "log").mockImplementation(() => {});
+    const store = {
+      load: vi.fn(async () => ({ initialized: true, chats: { "123@c.us": 0 } })),
+      save: vi.fn(async () => undefined),
+    } as unknown as JsonWhatsAppCatchUpStore;
+
+    const channel = new WhatsAppWebChannel({
+      phoneNumber: "12025550108",
+      catchUp: { store, chatLimit: 50, messageLimitPerChat: 50 },
+    });
+    channel.onMessage(async () => {});
+
+    await channel.start();
+    const client = whatsappMock.clients[0]!;
+    client.getChats
+      .mockRejectedValueOnce(new Error("page still syncing"))
+      .mockResolvedValueOnce([]);
+
+    client.handlers.get("ready")?.();
+    await vi.advanceTimersByTimeAsync(6000);
+
+    expect(client.getChats).toHaveBeenCalledTimes(2);
+    expect(log.mock.calls.flat().join("\n")).not.toContain("Catch-up scan failed");
   });
 
   it("notifies once per unlinked window when sends are attempted", async () => {

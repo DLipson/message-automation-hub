@@ -1,4 +1,5 @@
 import pkg from "whatsapp-web.js";
+import type { Chat } from "whatsapp-web.js";
 import { platform } from "node:os";
 import { appDefaults } from "../../config.js";
 import { formatError } from "../../errors.js";
@@ -399,6 +400,7 @@ implements InboundChannel, WhatsAppSender, WhatsAppChatSender, WhatsAppPairing {
       const state = this.catchUpState ??= await this.catchUp.store.load();
       if (!state.initialized) {
         state.initialized = true;
+        state.baseline = Math.floor(Date.now() / 1000);
         await this.catchUp.store.save(state);
         logWhatsApp(
           "Recorded catch-up baseline; not forwarding pre-existing history.",
@@ -418,13 +420,19 @@ implements InboundChannel, WhatsAppSender, WhatsAppChatSender, WhatsAppPairing {
   private async sweepForMissedMessages(state: CatchUpState): Promise<void> {
     const chatLimit = this.catchUp?.chatLimit ?? 50;
     const messageLimit = this.catchUp?.messageLimitPerChat ?? 50;
-    const cutoff = Math.max(0, ...Object.values(state.chats));
+    const watermarks = Object.values(state.chats);
+    // A chat with no watermark yet starts from the catch-up baseline (or the oldest
+    // watermark on stores written before `baseline` existed), so a first-contact
+    // message during an offline/stuck window is still recovered.
+    const startingFor = (chatId: string): number =>
+      state.chats[chatId] ?? state.baseline
+        ?? (watermarks.length > 0 ? Math.min(...watermarks) : 0);
 
-    const chats = await this.client.getChats();
+    const chats = await this.getChatsWithRetry();
     for (const chat of chats.slice(0, chatLimit)) {
       const chatId = serializedIdOf(chat.id as unknown as RawWhatsAppMessage);
       if (!chatId) continue;
-      const starting = state.chats[chatId] ?? cutoff;
+      const starting = startingFor(chatId);
       const lastTs = chat.lastMessage?.timestamp;
       if (lastTs !== undefined && lastTs <= starting) continue;
 
@@ -477,6 +485,28 @@ implements InboundChannel, WhatsAppSender, WhatsAppChatSender, WhatsAppPairing {
         );
       }
     }
+  }
+
+  // ponytail: the sweep runs ~seconds after `ready`, while the page is still
+  // syncing chats, so getChats()'s page evaluate can throw (seen 2026-08-17 as
+  // "Catch-up scan failed: r: r"). Retry a few times with a short delay; the
+  // whole sweep previously died on the first transient failure.
+  private async getChatsWithRetry(): Promise<Chat[]> {
+    let lastError: unknown;
+    for (let attempt = 1; attempt <= 3; attempt += 1) {
+      try {
+        return await this.client.getChats();
+      } catch (error) {
+        lastError = error;
+        if (attempt < 3) {
+          logWhatsApp(
+            `Catch-up chat list attempt ${attempt} failed, retrying in 5s: ${formatError(error)}`,
+          );
+          await new Promise(resolve => setTimeout(resolve, 5000));
+        }
+      }
+    }
+    throw lastError;
   }
 
   private async sendAndTrack(
