@@ -300,6 +300,23 @@ jobs:
             curl -fsSL https://get.docker.com | sh
           fi
 
+          if ! swapon --show=NAME | grep -qx '/swapfile'; then
+            if [ ! -f /swapfile ]; then
+              if ! fallocate -l 1G /swapfile; then
+                dd if=/dev/zero of=/swapfile bs=1M count=1024 status=progress
+              fi
+              chmod 600 /swapfile
+              mkswap /swapfile
+            fi
+            swapon /swapfile
+          fi
+
+          grep -qE '^/swapfile[[:space:]]' /etc/fstab || echo '/swapfile none swap sw 0 0' >> /etc/fstab
+          printf 'vm.swappiness=10\n' >/etc/sysctl.d/99-message-hub-swap.conf
+          sysctl -p /etc/sysctl.d/99-message-hub-swap.conf || true
+          swapon --show
+          free -h
+
           mkdir -p "\$app_dir"
           cat >"\$app_dir/docker-compose.yml" <<'COMPOSE_EOF'
           ${compose_file}

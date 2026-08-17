@@ -14,6 +14,8 @@ import { isFileMissing } from "../../errors.js";
 export type CatchUpState = {
   initialized: boolean;
   chats: Record<string, number>;
+  /** Unix seconds of the first-ever sweep; the earliest backlog a never-seen chat may be caught up from. */
+  baseline?: number;
 };
 
 export class JsonWhatsAppCatchUpStore {
@@ -26,7 +28,11 @@ export class JsonWhatsAppCatchUpStore {
       const raw = JSON.parse(
         await readFile(this.filePath, "utf8"),
       ) as Partial<CatchUpState>;
-      return { initialized: Boolean(raw.initialized), chats: raw.chats ?? {} };
+      return {
+        initialized: Boolean(raw.initialized),
+        chats: raw.chats ?? {},
+        ...(typeof raw.baseline === "number" ? { baseline: raw.baseline } : {}),
+      };
     } catch (error) {
       if (isFileMissing(error)) {
         return { initialized: false, chats: {} };
