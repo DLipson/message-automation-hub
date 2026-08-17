@@ -1,6 +1,7 @@
 node_modules/
 dist/
 .env
+secrets/
 .wwebjs_auth/
 .wwebjs_cache/
 coverage/
