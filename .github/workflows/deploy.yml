@@ -338,6 +338,14 @@ jobs:
             printf 'Created empty secrets/secrets.json; configure before the bot can run.\n'
           fi
 
+          docker compose down || true
+
+          session_dir="\$(docker volume inspect message-automation-hub_whatsapp-session --format '{{.Mountpoint}}' 2>/dev/null || true)/session"
+          if [ -n "\$(echo "\$session_dir" | grep '/_data/session' || true)" ]; then
+            rm -f "\$session_dir/SingletonCookie" "\$session_dir/SingletonLock" "\$session_dir/SingletonSocket"
+            printf 'Cleared WhatsApp Chromium singleton locks in %s.\n' "\$session_dir"
+          fi
+
           docker compose pull
           docker compose up -d
 
