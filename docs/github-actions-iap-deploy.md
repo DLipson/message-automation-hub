@@ -84,17 +84,6 @@ gcloud iam roles create messageHubGithubDeploy \
 gcloud projects add-iam-policy-binding "$PROJECT_ID" \
   --member "serviceAccount:${SA_EMAIL}" \
   --role "projects/${PROJECT_ID}/roles/messageHubGithubDeploy"
-
-# Staging deploys use `gcloud compute ssh --tunnel-through-iap` (no VM reset).
-# The SA therefore also needs an IAP tunnel accessor role and an OS Login
-# role so it can SSH as a user with sudo.
-gcloud projects add-iam-policy-binding "$PROJECT_ID" \
-  --member "serviceAccount:${SA_EMAIL}" \
-  --role "roles/iap.tunnelResourceAccessor"
-
-gcloud projects add-iam-policy-binding "$PROJECT_ID" \
-  --member "serviceAccount:${SA_EMAIL}" \
-  --role "roles/compute.osAdminLogin"
 ```
 
 ## GitHub Variables

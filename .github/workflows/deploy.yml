@@ -263,7 +263,7 @@ jobs:
 
       - uses: google-github-actions/setup-gcloud@v3
 
-      - name: Deploy stage via IAP SSH
+      - name: Deploy stage through VM startup script
         env:
           GCP_PROJECT_ID: ${{ vars.GCP_PROJECT_ID }}
           GCP_ZONE: ${{ vars.STAGING_GCP_ZONE }}
@@ -272,39 +272,30 @@ jobs:
         run: |
           set -euo pipefail
 
-          compose_b64="$(sed "s|\\\${MESSAGE_HUB_IMAGE_TAG:-stage}|stage-${TARGET_COMMIT}|" docker-compose.yml | base64 -w0)"
-          env_b64="$(base64 -w0 < .env.example)"
+          app_dir="/opt/message-automation-hub"
+          complete_marker="Stage deploy startup script complete for ${TARGET_COMMIT}."
 
+          deploy_script="$(mktemp)"
           normal_script="$(mktemp)"
 
-          cat >"$normal_script" <<'NORMAL_SCRIPT'
+          compose_file="$(sed "s|\\\${MESSAGE_HUB_IMAGE_TAG:-stage}|stage-${TARGET_COMMIT}|" docker-compose.yml)"
+          env_example="$(cat .env.example)"
+
+          cat >"$deploy_script" <<REMOTE_SCRIPT
           #!/usr/bin/env bash
-          set -euo pipefail
-
-          app_dir="/opt/message-automation-hub"
-
-          cd "$app_dir" || exit 0
-          docker compose up -d || true
-          NORMAL_SCRIPT
-
-          gcloud compute instances add-metadata "$GCP_INSTANCE" \
-            --project "$GCP_PROJECT_ID" \
-            --zone "$GCP_ZONE" \
-            --metadata-from-file startup-script="$normal_script"
-
-          gcloud compute ssh "$GCP_INSTANCE" \
-            --project "$GCP_PROJECT_ID" \
-            --zone "$GCP_ZONE" \
-            --tunnel-through-iap \
-            --quiet \
-            --command "sudo env COMPOSE_B64='$compose_b64' ENV_B64='$env_b64' TARGET_COMMIT='$TARGET_COMMIT' bash -s" <<'REMOTE'
           set -euo pipefail
           export HOME=/root
 
-          printf '[%s] Starting stage deploy via IAP SSH for %s.\n' "$(date --iso-8601=seconds)" "$TARGET_COMMIT"
+          exec > >(tee -a /var/log/message-hub-stage-deploy.log | logger -t message-hub-stage-deploy -s 2>/dev/console) 2>&1
+
+          service="message-automation-hub"
+          app_dir="${app_dir}"
+          target_commit="${TARGET_COMMIT}"
+
+          printf '[%s] Starting stage deploy startup script for %s.\n' "\$(date --iso-8601=seconds)" "\$target_commit"
 
           if ! command -v docker >/dev/null 2>&1; then
-            printf '[%s] Docker not found; installing.\n' "$(date --iso-8601=seconds)"
+            printf '[%s] Docker not found; installing.\n' "\$(date --iso-8601=seconds)"
             command -v curl >/dev/null 2>&1 || { apt-get update && apt-get install -y curl; }
             curl -fsSL https://get.docker.com | sh
           fi
@@ -326,12 +317,16 @@ jobs:
           swapon --show
           free -h
 
-          app_dir="/opt/message-automation-hub"
-          mkdir -p "$app_dir"
-          echo "$COMPOSE_B64" | base64 -d > "$app_dir/docker-compose.yml"
-          echo "$ENV_B64" | base64 -d > "$app_dir/.env.example"
+          mkdir -p "\$app_dir"
+          cat >"\$app_dir/docker-compose.yml" <<'COMPOSE_EOF'
+          ${compose_file}
+          COMPOSE_EOF
 
-          cd "$app_dir"
+          cat >"\$app_dir/.env.example" <<'ENV_EOF'
+          ${env_example}
+          ENV_EOF
+
+          cd "\$app_dir"
           mkdir -p secrets
           if [ ! -f .env ]; then
             cp .env.example .env
@@ -345,17 +340,67 @@ jobs:
 
           docker compose down || true
 
-          session_dir="$(docker volume inspect message-automation-hub_whatsapp-session --format '{{.Mountpoint}}' 2>/dev/null || true)/session"
-          if [ -n "$(echo "$session_dir" | grep '/_data/session' || true)" ]; then
-            rm -f "$session_dir/SingletonCookie" "$session_dir/SingletonLock" "$session_dir/SingletonSocket"
-            printf 'Cleared WhatsApp Chromium singleton locks in %s.\n' "$session_dir"
+          session_dir="\$(docker volume inspect message-automation-hub_whatsapp-session --format '{{.Mountpoint}}' 2>/dev/null || true)/session"
+          if [ -n "\$(echo "\$session_dir" | grep '/_data/session' || true)" ]; then
+            rm -f "\$session_dir/SingletonCookie" "\$session_dir/SingletonLock" "\$session_dir/SingletonSocket"
+            printf 'Cleared WhatsApp Chromium singleton locks in %s.\n' "\$session_dir"
           fi
 
           docker compose pull
           docker compose up -d
 
-          printf '[%s] Stage deploy complete for %s.\n' "$(date --iso-8601=seconds)" "$TARGET_COMMIT"
-          REMOTE
+          printf '[%s] ${complete_marker}\n' "\$(date --iso-8601=seconds)"
+          REMOTE_SCRIPT
+
+          cat >"$normal_script" <<'NORMAL_SCRIPT'
+          #!/usr/bin/env bash
+          set -euo pipefail
+
+          service="message-automation-hub"
+          app_dir="/opt/message-automation-hub"
+
+          systemctl stop "$service" || true
+          cd "$app_dir" || exit 0
+          docker compose up -d || true
+          NORMAL_SCRIPT
+
+          gcloud compute instances add-metadata "$GCP_INSTANCE" \
+            --project "$GCP_PROJECT_ID" \
+            --zone "$GCP_ZONE" \
+            --metadata-from-file startup-script="$deploy_script"
+
+          gcloud compute instances reset "$GCP_INSTANCE" \
+            --project "$GCP_PROJECT_ID" \
+            --zone "$GCP_ZONE" \
+            --quiet
+
+          deadline=$((SECONDS + 3600))
+          while [ "$SECONDS" -lt "$deadline" ]; do
+            serial_output="$(gcloud compute instances get-serial-port-output "$GCP_INSTANCE" \
+              --project "$GCP_PROJECT_ID" \
+              --zone "$GCP_ZONE" \
+              --port 1 \
+              --start 0 || true)"
+
+            if grep -Fq "$complete_marker" <<<"$serial_output"; then
+              printf '%s\n' "$serial_output" | tail -n 200
+              gcloud compute instances add-metadata "$GCP_INSTANCE" \
+                --project "$GCP_PROJECT_ID" \
+                --zone "$GCP_ZONE" \
+                --metadata-from-file startup-script="$normal_script"
+              exit 0
+            fi
+
+            sleep 15
+          done
+
+          gcloud compute instances get-serial-port-output "$GCP_INSTANCE" \
+            --project "$GCP_PROJECT_ID" \
+            --zone "$GCP_ZONE" \
+            --port 1 \
+            --start 0 | tail -n 400
+          echo "Timed out waiting for VM stage deploy marker: $complete_marker" >&2
+          exit 1
 
       - name: Dump stage app logs
         env:
@@ -364,10 +409,17 @@ jobs:
           GCP_INSTANCE: ${{ vars.STAGING_GCP_INSTANCE }}
         run: |
           set -euo pipefail
-          sleep 20
-          gcloud compute ssh "$GCP_INSTANCE" \
+          sleep 90
+          echo "=== serial output after boot (tail 400) ==="
+          gcloud compute instances get-serial-port-output "$GCP_INSTANCE" \
             --project "$GCP_PROJECT_ID" \
             --zone "$GCP_ZONE" \
-            --tunnel-through-iap \
-            --quiet \
-            --command "sudo docker ps --format 'table {{.Names}}\t{{.Status}}'; echo '=== app container logs ==='; sudo docker logs message-automation-hub --tail 100 --timestamps 2>&1 || true"
+            --port 1 \
+            --start 0 || true | tail -n 400
+          echo "=== app container logs from Cloud Logging ==="
+          gcloud logging read \
+            "resource.type=\"gce_instance\" AND resource.labels.instance_name=\"$GCP_INSTANCE\" AND logName:\"container\"" \
+            --project "$GCP_PROJECT_ID" \
+            --freshness 30m \
+            --limit 200 \
+            --format "value(timestamp,jsonPayload.message)" 2>&1 || true
