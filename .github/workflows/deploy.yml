@@ -393,3 +393,25 @@ jobs:
             --start 0 | tail -n 400
           echo "Timed out waiting for VM stage deploy marker: $complete_marker" >&2
           exit 1
+
+      - name: Dump stage app logs
+        env:
+          GCP_PROJECT_ID: ${{ vars.GCP_PROJECT_ID }}
+          GCP_ZONE: ${{ vars.STAGING_GCP_ZONE }}
+          GCP_INSTANCE: ${{ vars.STAGING_GCP_INSTANCE }}
+        run: |
+          set -euo pipefail
+          sleep 90
+          echo "=== serial output after boot (tail 400) ==="
+          gcloud compute instances get-serial-port-output "$GCP_INSTANCE" \
+            --project "$GCP_PROJECT_ID" \
+            --zone "$GCP_ZONE" \
+            --port 1 \
+            --start 0 || true | tail -n 400
+          echo "=== app container logs from Cloud Logging ==="
+          gcloud logging read \
+            "resource.type=\"gce_instance\" AND resource.labels.instance_name=\"$GCP_INSTANCE\" AND logName:\"container\"" \
+            --project "$GCP_PROJECT_ID" \
+            --freshness 30m \
+            --limit 200 \
+            --format "value(timestamp,jsonPayload.message)" 2>&1 || true
