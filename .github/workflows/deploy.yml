@@ -340,6 +340,8 @@ jobs:
 
           docker compose down || true
 
+          docker image prune -af || true
+
           session_dir="\$(docker volume inspect message-automation-hub_whatsapp-session --format '{{.Mountpoint}}' 2>/dev/null || true)/session"
           if [ -n "\$(echo "\$session_dir" | grep '/_data/session' || true)" ]; then
             rm -f "\$session_dir/SingletonCookie" "\$session_dir/SingletonLock" "\$session_dir/SingletonSocket"
