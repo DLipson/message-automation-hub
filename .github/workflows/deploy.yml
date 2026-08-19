@@ -372,4 +372,4 @@ jobs:
             --zone "$GCP_ZONE" \
             --tunnel-through-iap \
             --quiet \
-            --command "sudo docker ps --format 'table {{.Names}}\t{{.Status}}'; echo '=== app container logs ==='; sudo docker logs message-automation-hub --tail 100 --timestamps 2>&1 || true"
+            --command "sudo docker ps --format 'table {{.Names}}\t{{.Status}}'; echo '=== container stats ==='; sudo docker stats --no-stream message-automation-hub; echo '=== top RSS processes ==='; ps -eo rss,comm --sort=-rss | head -15; echo '=== app container logs ==='; sudo docker logs message-automation-hub --tail 100 --timestamps 2>&1 || true"
