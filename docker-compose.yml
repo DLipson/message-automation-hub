@@ -3,6 +3,8 @@ services:
     image: ghcr.io/dlipson/message-automation-hub:${MESSAGE_HUB_IMAGE_TAG:-stage}
     container_name: message-automation-hub
     restart: unless-stopped
+    logging:
+      driver: journald
     env_file:
       - path: .env
         required: false
