@@ -1,5 +1,12 @@
 # Logs
 
+## 2026-08-20 - Hard memory ceiling added; /data inventory in deploy dump
+
+- **Finding** - The 443→515 MiB jump the session after disabling otelopscol (~60-65 MB freed) was Chromium **absorbing the freed headroom** (+72 MiB), not a regression: the memory diet capped V8 heap and collapsed process counts but left Chromium's total RSS bounded only by host memory. That is the mechanism behind the original `Out of puff` OOM — nothing stopped Chromium from taking whatever was on offer. Observation alone (per-deploy trend log) can't fix it; a limit can.
+- **Fix** - `docker-compose.yml` service gained `mem_limit: 700m` (observed init peak 515 MiB, steady ~307 MiB; 700 leaves ~264 MiB host headroom on the 964 MiB box). Behavior when hit: cgroup OOM-kill → `restart: unless-stopped` brings it back, so growth is **bounded**, with a restart-loop as the cost if a WhatsApp Web update ever needs >700 MiB. Tunable; raise if loop appears.
+- **Deploy dump inventory** - dump now also lists `/data` contents and heads the four state JSONs (`thread-store`, `whatsapp-catch-up`, `pending-group-invites`, `imap-checkpoint`), tee'd to `deploy-stats.log`, so **every redeploy re-proves persistence** (and the IMAP checkpoint `initialized` vs `resumed` boot line already does too). First verified survival cycle: send a marked test WhatsApp now → next deploy's dump shows the files surviving in `stage-data`.
+- **staging test entry note** - a test forward lands a real entry in `stage-data/thread-store.json` + advances the catch-up watermark for that chat. Stage-only, idempotent for the same test contact; acceptable noise, not production data.
+
 ## 2026-08-20 - Audit found two more state-loss traps; stage ops agent disabled; deploy dump persisted
 
 - **Audit result** - Grep of `src/` for `env.[A-Z_]+_FILE` + the Dockerfile/compose volume map found **two more stores defaulting into the ephemeral container layer** on stage (wiped on every container recreate, same bug class as the anonymous `/data`): the **catch-up watermark store** (`WHATSAPP_CATCH_UP_STORE_FILE`, default `/root/secrets/message-automation-hub/whatsapp-catch-up.json` via `json-whatsapp-catch-up-store.ts:65`) and the **pending-group-invite store** (`PENDING_GROUP_INVITE_STORE_FILE`, `json-pending-group-invite-store.ts:65`). Verified the container runs as root (no `USER` in Dockerfile) with `MESSAGE_HUB_ENV_FILE` unset, so `homedir()=/root` holds. This explains the 14:02-03 catch-up-sweep miss: each stage deploy reset the per-chat watermark + baseline.

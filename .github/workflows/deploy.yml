@@ -369,6 +369,15 @@ jobs:
           docker stats --no-stream message-automation-hub 2>&1 | tee -a "$dump_file" || true
           echo '=== top RSS processes ==='
           ps -eo rss,comm --sort=-rss | head -15 2>&1 | tee -a "$dump_file" || true
+          echo '=== stage-data volume (/data) ==='
+          ls -la /data 2>&1 | tee -a "$dump_file" || true
+          for f in thread-store.json whatsapp-catch-up.json pending-group-invites.json imap-checkpoint.json; do
+            if [ -f "/data/$f" ]; then
+              echo "--- /data/$f ---"
+              head -c 400 "/data/$f" 2>&1 | tee -a "$dump_file" || true
+              echo
+            fi
+          done
           echo '=== app container logs ==='
           docker logs message-automation-hub --tail 100 --timestamps 2>&1 | tee -a "$dump_file" || true
           REMOTE
