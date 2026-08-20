@@ -1,5 +1,14 @@
 # Logs
 
+## 2026-08-20 - Stage email reply forwarded? No — thread store lives in an anonymous /data volume, reset every redeploy
+
+- **Symptom** - After the memory diet (below), a new test WhatsApp forwarded to email fine (10:42-43), but the email reply to it (10:45-46) was never picked up: reply email stays **unread** in the inbox, no forward, and no `WA reply failed` failure notification.
+- **Root cause** - Two compounding faults:
+  1. **Anonymous `/data` volume** - `EMAIL_THREAD_STORE_FILE=/data/thread-store.json` and `IMAP_CHECKPOINT_FILE=/data/imap-checkpoint.json` live in `/data`, declared only as an anonymous volume by the `Dockerfile` (`VOLUME ["/app/.wwebjs_auth", "/data"]`, line 47). `docker-compose.yml` declares named volumes only for `whatsapp-session` and `./secrets`. Every `docker compose down`+`up` (every deploy) gives a fresh, empty `/data`; the orphaned anonymous volume is never reused. So the 11:35 container's thread-store is **empty** → the reply's In-Reply-To/References can't resolve the 10:42 test-message thread → `threadForEmail` returns null → `ReplyEmailToWhatsApp` bails at `reply-email-to-whatsapp.ts:47` → **no forward, no notification, email stays unread**. All three symptoms, exactly.
+  2. **Flaky IMAP watcher on the live container** - The 07:38 container (which held the matching thread store and received the 10:42 test) logged `IMAP watcher error: Unexpected close` at 07:41:36, so it may never have fetched the 10:45 reply in the first place.
+- **Fix (commit this entry, `stage-data` volume)** - `docker-compose.yml`: mount `stage-data:/data` (named) alongside `whatsapp-session`, and declare `stage-data:` in the volumes section. Thread store + IMAP checkpoint now survive redeploys the same way the WhatsApp session does. **Caveat** - the named volume is fresh on first boot after this change, so the pre-existing 10:45 reply's thread is unrecoverable regardless; verify with a *new* forward + reply.
+- **Still open** - (a) IMAP watcher `Unexpected close` resilience; (b) catch-up sweep miss of the 14:02-03 message; (c) e2-small resize if ever needed.
+
 ## 2026-08-20 - Stage memory diet: Chromium + Node capped, WhatsApp reaches ready, forwarding works
 
 - **Symptom** - Stage container booted (`WhatsApp Initializing client` + `Bot control server listening`) but never reached `Client is ready`; forwards dead; host showed `virtio_balloon: Out of puff! Can't get 1 pages` (guest at memory ceiling). Stage VM is a 1 GB e2-micro (964 MiB usable), persistently paging (475 MiB swap at idle from the deploy's `free -h`).
