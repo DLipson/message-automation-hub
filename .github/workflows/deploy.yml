@@ -366,7 +366,7 @@ jobs:
           GCP_INSTANCE: ${{ vars.STAGING_GCP_INSTANCE }}
         run: |
           set -euo pipefail
-          sleep 20
+          sleep 180
           gcloud compute ssh "$GCP_INSTANCE" \
             --project "$GCP_PROJECT_ID" \
             --zone "$GCP_ZONE" \
