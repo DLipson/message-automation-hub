@@ -357,19 +357,13 @@ jobs:
           docker compose up -d
 
           printf '[%s] Stage deploy complete for %s.\n' "$(date --iso-8601=seconds)" "$TARGET_COMMIT"
-          REMOTE
 
-      - name: Dump stage app logs
-        env:
-          GCP_PROJECT_ID: ${{ vars.GCP_PROJECT_ID }}
-          GCP_ZONE: ${{ vars.STAGING_GCP_ZONE }}
-          GCP_INSTANCE: ${{ vars.STAGING_GCP_INSTANCE }}
-        run: |
-          set -euo pipefail
+          printf 'Waiting 3 minutes for WhatsApp to initialize before dumping stats...\n'
           sleep 180
-          gcloud compute ssh "$GCP_INSTANCE" \
-            --project "$GCP_PROJECT_ID" \
-            --zone "$GCP_ZONE" \
-            --tunnel-through-iap \
-            --quiet \
-            --command "sudo docker ps --format 'table {{.Names}}\t{{.Status}}'; echo '=== container stats ==='; sudo docker stats --no-stream message-automation-hub; echo '=== top RSS processes ==='; ps -eo rss,comm --sort=-rss | head -15; echo '=== app container logs ==='; sudo docker logs message-automation-hub --tail 100 --timestamps 2>&1 || true"
+          echo '=== container stats ==='
+          docker stats --no-stream message-automation-hub || true
+          echo '=== top RSS processes ==='
+          ps -eo rss,comm --sort=-rss | head -15 || true
+          echo '=== app container logs ==='
+          docker logs message-automation-hub --tail 100 --timestamps 2>&1 || true
+          REMOTE
