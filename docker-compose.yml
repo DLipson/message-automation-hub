@@ -13,6 +13,8 @@ services:
       MESSAGE_HUB_SECRET_FILE: /run/secrets/message-hub/secrets.json
       EMAIL_THREAD_STORE_FILE: /data/thread-store.json
       IMAP_CHECKPOINT_FILE: /data/imap-checkpoint.json
+      WHATSAPP_CATCH_UP_STORE_FILE: /data/whatsapp-catch-up.json
+      PENDING_GROUP_INVITE_STORE_FILE: /data/pending-group-invites.json
       MESSAGE_HUB_BOT_CONTROL_PORT: 8788
       NODE_OPTIONS: --max-old-space-size=256
     ports:

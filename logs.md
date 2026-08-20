@@ -1,5 +1,13 @@
 # Logs
 
+## 2026-08-20 - Audit found two more state-loss traps; stage ops agent disabled; deploy dump persisted
+
+- **Audit result** - Grep of `src/` for `env.[A-Z_]+_FILE` + the Dockerfile/compose volume map found **two more stores defaulting into the ephemeral container layer** on stage (wiped on every container recreate, same bug class as the anonymous `/data`): the **catch-up watermark store** (`WHATSAPP_CATCH_UP_STORE_FILE`, default `/root/secrets/message-automation-hub/whatsapp-catch-up.json` via `json-whatsapp-catch-up-store.ts:65`) and the **pending-group-invite store** (`PENDING_GROUP_INVITE_STORE_FILE`, `json-pending-group-invite-store.ts:65`). Verified the container runs as root (no `USER` in Dockerfile) with `MESSAGE_HUB_ENV_FILE` unset, so `homedir()=/root` holds. This explains the 14:02-03 catch-up-sweep miss: each stage deploy reset the per-chat watermark + baseline.
+- **Fix** - `docker-compose.yml` now sets both to `/data/…` (inside the **named** `stage-data` volume added earlier today via `b257103`). Backlog gap: existing watermarks in prior ephemeral stores are unrecoverable, so a missed window may not replay; verify with a fresh forward + reply.
+- **Stage memory: ops agent disabled** - `otelopscol` was ~60 MB RSS (last dump: `60320`), ~7% of the 964 MiB box, and nothing consumes its Cloud Logging/Monitoring output (deploy SA has no log-view perms; both stage and prod confirmed unmonitored via ops agent). deploy-stage now `systemctl stop/disable google-cloud-ops-agent` (+ the collector/fluent-bit sub-units), stage-only; deploy-prod untouched.
+- **Deploy dump persisted** - the one-shot stats/RSS/logs dump is now also `tee`-d to `/opt/message-automation-hub/deploy-stats.log`, giving a per-deploy memory trend without a new cron job. Still no between-deploys snapshot; revisit if memory creeps.
+- **Still open** - (a) watchdog: `/ready` endpoint on 8788 + Docker healthcheck covers *wedged/never-ready*, but a **synthetic end-to-end self-check** is the only thing that would catch the silent-reply-drop class — scheduled, not shipped; (b) IMAP watcher `Unexpected close` resilience; (c) catch-up 14:02-03 miss treated as explained by (a) above.
+
 ## 2026-08-20 - Stage email reply forwarded? No — thread store lives in an anonymous /data volume, reset every redeploy
 
 - **Symptom** - After the memory diet (below), a new test WhatsApp forwarded to email fine (10:42-43), but the email reply to it (10:45-46) was never picked up: reply email stays **unread** in the inbox, no forward, and no `WA reply failed` failure notification.
