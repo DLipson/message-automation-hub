@@ -370,11 +370,11 @@ jobs:
           echo '=== top RSS processes ==='
           ps -eo rss,comm --sort=-rss | head -15 2>&1 | tee -a "$dump_file" || true
           echo '=== stage-data volume (/data) ==='
-          ls -la /data 2>&1 | tee -a "$dump_file" || true
+          docker exec message-automation-hub ls -la /data 2>&1 | tee -a "$dump_file" || true
           for f in thread-store.json whatsapp-catch-up.json pending-group-invites.json imap-checkpoint.json; do
-            if [ -f "/data/$f" ]; then
+            if docker exec message-automation-hub test -f "/data/$f" 2>/dev/null; then
               echo "--- /data/$f ---"
-              head -c 400 "/data/$f" 2>&1 | tee -a "$dump_file" || true
+              docker exec message-automation-hub head -c 400 "/data/$f" 2>&1 | tee -a "$dump_file" || true
               echo
             fi
           done
