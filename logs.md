@@ -1,5 +1,14 @@
 # Logs
 
+## 2026-08-20 - Stage memory diet: Chromium + Node capped, WhatsApp reaches ready, forwarding works
+
+- **Symptom** - Stage container booted (`WhatsApp Initializing client` + `Bot control server listening`) but never reached `Client is ready`; forwards dead; host showed `virtio_balloon: Out of puff! Can't get 1 pages` (guest at memory ceiling). Stage VM is a 1 GB e2-micro (964 MiB usable), persistently paging (475 MiB swap at idle from the deploy's `free -h`).
+- **Diagnosis via deploy-dump stats** - Container used **424.7 MiB / 964.6 MiB (44%)** with 110 PIDs; top RSS showed ~700 MB across Chromium's many processes alone (`298M+102M+94M+78M+49M+38M` chrome). Node itself was small (single digits there); the hog was a full multi-process Chromium, not Docker. Low CPU-bursty `Out of puff` = intermittent host page grants → Chromium starves → no `ready`.
+- **Fix (commit `c3c537d`)** - Collapse Chromium's process tree in `browserArgs()` (`--disable-features=SitePerProcess`, `--mute-audio`, `--js-flags=--max-old-space-size=256`) + cap Node's heap in `docker-compose.yml` (`NODE_OPTIONS=--max-old-space-size=256`). Result: container **291-307 MiB (30-32%)**, init CPU 346% (was 2585%), 99 PIDs.
+- **Verification** - Post-fix deploy log showed `WhatsApp Client authenticated.` (07:42:10) + `Loading screen 100%` — first time stage's real client ever got past initialize; a fresh test WhatsApp forwarded to email end-to-end. **Catch-up sweep did NOT replay the pending 14:02-03 message** (watermark/baseline semantics — its chat's watermark may sit post-message or the sweep skipped it; open item).
+- **CI workflow changes** - `deploy.yml` deploy-stage now waits 3 min then dumps `docker stats` + top-RSS + container logs **inside the same IAP-SSH session as the deploy** (`1dc894c`) — the earlier separate "Dump stage app logs" SSH step was flaky (exit 255), so the dump moved inline. `9e51d26` added the stats/RSS capture itself.
+- **Still open** - (a) why catch-up missed the 14:02 message; (b) `IMAP watcher error: Unexpected close` (transient, auto-reconnects per 07-26 fix); (c) if 2 GB+ is ever wanted, resize stage to e2-small (~$10/mo) — memory diet first was the $0 attempt and it worked.
+
 ## 2026-08-19 - Stage WhatsApp forwarding dead (SingletonLock + disk-full); SSH deploys replace VM resets
 
 - **Symptoms** - Stage (`message-hub-stage`) forwarded nothing: test WhatsApps TO the linked number (from another number) and FROM the email account produced no output. App otherwise booted (`Bot control server listening on 127.0.0.1:8788`, `Email automation polling is enabled`) but WhatsApp never initialized.
