@@ -835,6 +835,9 @@ function browserArgs(): string[] {
     "--disable-gpu",
     "--disable-sync",
     "--no-first-run",
+    "--mute-audio",
+    "--disable-features=SitePerProcess",
+    "--js-flags=--max-old-space-size=256",
   ];
 }
 
