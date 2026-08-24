@@ -60,7 +60,6 @@ export function createWhatsAppEmailBridgePlugin(
         threadStore,
         logger,
         {
-          ignoreFrom: config.email.from,
           failureNotification: {
             sender: ctx.require(capabilities.emailSender),
             from: config.email.from,

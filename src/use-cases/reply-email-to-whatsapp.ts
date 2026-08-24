@@ -17,7 +17,6 @@ import {
 } from "./whatsapp-email-thread-store.js";
 
 export type ReplyEmailToWhatsAppOptions = {
-  ignoreFrom?: string;
   failureNotification?: {
     sender: EmailSender;
     from: string;
@@ -88,12 +87,8 @@ export class ReplyEmailToWhatsApp implements EmailAutomationHandler {
   }
 
   private isOwnForwardedEmail(email: InboundEmail): boolean {
-    if (email.messageId?.includes("@message-automation-hub.local")) {
-      return true;
-    }
-
     return Boolean(
-      this.options.ignoreFrom && email.from?.includes(this.options.ignoreFrom),
+      email.messageId?.includes("@message-automation-hub.local"),
     );
   }
 

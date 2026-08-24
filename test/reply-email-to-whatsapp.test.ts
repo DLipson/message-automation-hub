@@ -210,8 +210,6 @@ describe("ReplyEmailToWhatsApp", () => {
       inbox,
       whatsapp,
       new FakeThreadStore(thread),
-      undefined,
-      { ignoreFrom: "bot@example.com" },
     );
 
     await expect(handler.handle(emailCommand({
@@ -225,25 +223,25 @@ describe("ReplyEmailToWhatsApp", () => {
     expect(inbox.processed).toEqual([]);
   });
 
-  it("ignores the bot's own forwarded emails by configured sender", async () => {
+  it("delivers a reply from the bot's own address when it carries no stamp", async () => {
     const inbox = new FakeEmailInbox();
     const whatsapp = new FakeWhatsApp();
     const handler = new ReplyEmailToWhatsApp(
       inbox,
       whatsapp,
       new FakeThreadStore(thread),
-      undefined,
-      { ignoreFrom: "bot@example.com" },
     );
 
     await expect(handler.handle(emailCommand({
       from: "Message Hub <bot@example.com>",
-      subject: "WhatsApp: Alice [wa:abc123]",
-      text: "Alice:\n\nOriginal message",
-    }), { sentWhatsAppImage: false })).resolves.toBe(false);
+      subject: "Re: WhatsApp: Alice [wa:abc123]",
+      text: "Sure, I can do that.",
+    }), { sentWhatsAppImage: false })).resolves.toBe(true);
 
-    expect(whatsapp.sent).toEqual([]);
-    expect(inbox.processed).toEqual([]);
+    expect(whatsapp.sent).toEqual([{
+      chatId: "127513921597547@lid",
+      text: "Sure, I can do that.",
+    }]);
   });
 
   it("ignores emails with unknown thread tokens", async () => {
