@@ -6,6 +6,7 @@ import {
   JsonPendingGroupInviteStore,
 } from "../../adapters/email/json-pending-group-invite-store.js";
 import { AcceptGroupInviteByEmail } from "../../use-cases/accept-group-invite-by-email.js";
+import { ForwardEmailToWhatsApp } from "../../use-cases/forward-email-to-whatsapp.js";
 import { ForwardMessageToEmail } from "../../use-cases/forward-message-to-email.js";
 import { ReplyEmailToWhatsApp } from "../../use-cases/reply-email-to-whatsapp.js";
 import type { AppLogger } from "../../ports/app-logger.js";
@@ -33,6 +34,25 @@ export function createWhatsAppEmailBridgePlugin(
       }
 
       const whatsappInbound = ctx.require(capabilities.whatsappInbound);
+
+      const commandHandler = new ForwardEmailToWhatsApp(
+        ctx.require(capabilities.emailInbox),
+        ctx.require(capabilities.emailStatusMarker),
+        ctx.require(capabilities.whatsappSender),
+        {
+          subjectPrefix: config.emailToWhatsapp.subjectPrefix,
+          failureNotification: {
+            sender: ctx.require(capabilities.emailSender),
+            from: config.email.from,
+            to: config.email.to,
+          },
+        },
+        logger,
+      );
+
+      ctx.on("email.received", ({ email, batch }) =>
+        commandHandler.handle(email, batch),
+      );
 
       const inviteHandler = new AcceptGroupInviteByEmail(
         ctx.require(capabilities.emailInbox),
