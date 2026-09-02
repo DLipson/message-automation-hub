@@ -1,5 +1,25 @@
 # Logs
 
+## 2026-09-02 - WhatsApp media download failure emails now carry the reason
+
+- **Symptom** - Error emails said only "Message Automation Hub could not download media... forwarded without attachments" with no clue WHY. Seen as group-message (catch-up) image forwards where `hasMedia` was true but bytes were unreachable.
+- **Root cause (of the unhelpful email)** - `tryDownloadMedia`/`downloadMediaViaPage` collapsed every failure into a bare `undefined`. The actual reasons (CDN 404, mediaStage ERROR/FETCHING, page not initialized) were only logged to console, never surfaced in the notification.
+- **Key mental model** - `hasMedia` is message metadata (a media pointer), not proof the CDN bytes still exist. Group messages being re-swept during catch-up frequently hit expired/pruned CDN media → `downloadAndMaybeDecrypt` 404.
+- **Fix** - New `MediaDownloadResult` union (`{ media } | { reason }`) threaded through `attachmentsFor`/`tryDownloadMedia`/`downloadMediaViaPage` in `whatsapp-web-channel.ts`. Each page-side failure now returns a reason string; the email body gains a `Reason:` line. Guard added so a missing `mediaStage` yields a clear reason instead of a misleading thrown error.
+- **Verification** - 3 new adapter tests (library-throw + no page → combined reason; `downloadMedia` resolving `undefined`; page evaluate returning 404 reason). 178 tests pass, `tsc --noEmit` clean.
+- **Open** - No test yet drives the browser `evaluate`'s real mediaStage branches (only a scripted `{ reason }` return is mocked); acceptable since that branch runs only against a real WhatsApp Web load.
+
+
+## 2026-08-31 - Image send via WA: command silently lost (delivery tracking bugs)
+
+- **Symptom** - User sent an email with an image attachment via `WA: <phone>` command. Recipient did not receive the image. Subsequent text-only messages to the same number worked. No failure notification was sent.
+- **Root cause 1 - Delivery queue uses order, not message correlation (HIGH).** `sendAndTrack` (`whatsapp-web-channel.ts:216`) does `deliveryQueue.shift()` — pairs the first queued resolver with the first `fromMe` `message_create` event. If any other outbound message fires (manual send from WhatsApp Web, or a race between two sends), the resolver is consumed by the wrong message. The image's actual delivery status is never tracked.
+- **Root cause 2 - `client.sendMessage` resolves before media upload confirms (HIGH).** `whatsapp-web.js` resolves when the browser-side JS returns, not when WhatsApp servers accept the media. If the media upload silently fails, the promise still resolves. The timeout fallback marks delivery as `"sent"`, and `.catch(() => {})` on `forward-email-to-whatsapp.ts:90` swallows any status-tracking error.
+- **Root cause 3 - `markProcessed` before send (MEDIUM).** `forward-email-to-whatsapp.ts:67` marks the email as read before calling `sendImage`. If the send fails, the email cannot be retried on the next poll.
+- **Root cause 4 - No zero-byte attachment guard (LOW).** An empty buffer passes `isImageAttachment`, reaches `MessageMedia`, and WhatsApp silently drops it.
+- **Fix** - Not yet implemented. Planned for `feat/send-all-media-types`: (1) correlate `message_create` by message ID; (2) check `message_ack` for media failure codes, remove bare `.catch(() => {})`; (3) move `markProcessed` to after send; (4) guard against zero-byte attachments.
+- **Still open** - No test coverage for `sendImage` timeout, delivery queue mismatch, or zero-byte image. The delivery tracking design (`sendAndTrack`) needs a rethink beyond just the image case — the queue-order assumption is fragile for all send types.
+
 ## 2026-08-20 - Hard memory ceiling added; /data inventory in deploy dump
 
 - **Finding** - The 443→515 MiB jump the session after disabling otelopscol (~60-65 MB freed) was Chromium **absorbing the freed headroom** (+72 MiB), not a regression: the memory diet capped V8 heap and collapsed process counts but left Chromium's total RSS bounded only by host memory. That is the mechanism behind the original `Out of puff` OOM — nothing stopped Chromium from taking whatever was on offer. Observation alone (per-deploy trend log) can't fix it; a limit can.

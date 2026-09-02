@@ -504,6 +504,99 @@ describe("WhatsAppWebChannel", () => {
     expect(log.mock.calls.flat().join("\n")).toContain("media download failed for message message-1");
   });
 
+  it("includes the download failure reason in the error notification email", async () => {
+    const log = vi.spyOn(console, "log").mockImplementation(() => {});
+    const notifier = new FakeEmailSender();
+    const channel = new WhatsAppWebChannel({
+      phoneNumber: "12025550108",
+      errorNotification: {
+        sender: notifier,
+        from: "bot@example.com",
+        to: "owner@example.com",
+      },
+    });
+    channel.onMessage(async () => {});
+    // pupPage left undefined: the direct page-download path reports that as its reason.
+
+    await channel.start();
+    await emitMessage({
+      from: "12025550108@c.us",
+      body: "voice note",
+      hasMedia: true,
+      downloadMedia: async () => {
+        throw new Error("Puppeteer evaluation failed");
+      },
+    });
+
+    expect(notifier.sent).toHaveLength(1);
+    const body = notifier.sent[0]!.text ?? "";
+    expect(body).toContain("Reason:");
+    expect(body).toContain("Puppeteer evaluation failed");
+    expect(log.mock.calls.flat().join("\n")).toContain("puppeteer page not initialized");
+  });
+
+  it("reports the direct page reason when downloadMedia resolves to no data", async () => {
+    const log = vi.spyOn(console, "log").mockImplementation(() => {});
+    const notifier = new FakeEmailSender();
+    const channel = new WhatsAppWebChannel({
+      phoneNumber: "12025550108",
+      errorNotification: {
+        sender: notifier,
+        from: "bot@example.com",
+        to: "owner@example.com",
+      },
+    });
+    channel.onMessage(async () => {});
+    // pupPage left undefined, so the direct path reports that as its reason.
+
+    await channel.start();
+    await emitMessage({
+      from: "12025550108@c.us",
+      body: "voice note",
+      hasMedia: true,
+      downloadMedia: async () => undefined,
+    });
+
+    expect(notifier.sent).toHaveLength(1);
+    const body = notifier.sent[0]!.text ?? "";
+    expect(body).toContain("Reason:");
+    expect(body).toContain("puppeteer page not initialized");
+  });
+
+  it("includes the 404 reason from the page evaluate in the error email", async () => {
+    const log = vi.spyOn(console, "log").mockImplementation(() => {});
+    const notifier = new FakeEmailSender();
+    const channel = new WhatsAppWebChannel({
+      phoneNumber: "12025550108",
+      errorNotification: {
+        sender: notifier,
+        from: "bot@example.com",
+        to: "owner@example.com",
+      },
+    });
+    channel.onMessage(async () => {});
+
+    await channel.start();
+    const client = whatsappMock.clients[0]!;
+    client.pupPage = {
+      evaluate: async () => ({ reason: "WhatsApp returned 404 (media expired or pruned)" }),
+    };
+
+    await emitMessage({
+      from: "12025550108@c.us",
+      body: "photo",
+      hasMedia: true,
+      downloadMedia: async () => {
+        throw new Error("library download failed");
+      },
+    });
+
+    expect(notifier.sent).toHaveLength(1);
+    const body = notifier.sent[0]!.text ?? "";
+    expect(body).toContain("WhatsApp returned 404 (media expired or pruned)");
+    expect(log.mock.calls.flat().join("\n")).toContain("WhatsApp returned 404 (media expired or pruned)");
+  });
+
   it("does not send error notification when not configured", async () => {
     const log = vi.spyOn(console, "log").mockImplementation(() => {});
     const channel = new WhatsAppWebChannel({ phoneNumber: "12025550108" });

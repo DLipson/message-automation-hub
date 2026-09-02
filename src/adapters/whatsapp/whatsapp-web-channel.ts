@@ -64,6 +64,13 @@ type RawWhatsAppMedia = {
   filename?: string | null;
 };
 
+// A successful download carries the media; a failure carries a human-readable
+// reason so the error email can say WHY the bytes were unreachable (CDN 404,
+// mediaStage error, page down) instead of a bare "could not download".
+type MediaDownloadResult =
+  | { media: RawWhatsAppMedia }
+  | { reason: string };
+
 type RawWhatsAppMessage = {
   id: { _serialized: string; "$1"?: string };
   from: string;
@@ -674,14 +681,19 @@ implements InboundChannel, WhatsAppSender, WhatsAppChatSender, WhatsAppPairing {
 
     const media = await this.tryDownloadMedia(rawMessage);
 
-    if (!media) {
+    if (!media || "reason" in media) {
       const msgId = messageIdFor(rawMessage);
       const sender = senderLabelFor(rawMessage);
-      logWhatsApp(`Media unavailable for message ${msgId} from ${sender}, forwarding without attachments`);
+      const reason = media && "reason" in media
+        ? `Reason: ${media.reason}`
+        : "Reason: no download path was available (hasMedia was set but the message exposed no media data).";
+      logWhatsApp(`Media unavailable for message ${msgId} from ${sender}: ${reason}, forwarding without attachments`);
       await this.notifyError(
         `WhatsApp media download failed: ${msgId}`,
         notificationTextFor(rawMessage, msgId, sender, [
           "Message Automation Hub could not download media from a WhatsApp message.",
+          "",
+          reason,
           "",
           "The message was forwarded without attachments.",
         ]),
@@ -689,25 +701,28 @@ implements InboundChannel, WhatsAppSender, WhatsAppChatSender, WhatsAppPairing {
       return [];
     }
 
-    const filename = media.filename ?? filenameFor(media.mimetype);
+    const filename = media.media.filename ?? filenameFor(media.media.mimetype);
     return [{
-      content: Buffer.from(media.data, "base64"),
-      contentType: media.mimetype,
+      content: Buffer.from(media.media.data, "base64"),
+      contentType: media.media.mimetype,
       ...(filename ? { filename } : {}),
     }];
   }
 
   private async tryDownloadMedia(
     rawMessage: RawWhatsAppMessage,
-  ): Promise<RawWhatsAppMedia | undefined> {
+  ): Promise<MediaDownloadResult | undefined> {
     const msgId = messageIdFor(rawMessage);
     const msgFrom = rawMessage.from;
+
+    let libraryError: unknown;
 
     if (serializedIdOf(rawMessage)) {
       try {
         const media = await rawMessage.downloadMedia!();
-        if (media) return media;
+        if (media) return { media };
       } catch (error) {
+        libraryError = error;
         logWhatsApp(
           `media download failed for message ${msgId} from ${msgFrom}, trying direct download: ${formatError(error)}`,
         );
@@ -718,28 +733,41 @@ implements InboundChannel, WhatsAppSender, WhatsAppChatSender, WhatsAppPairing {
       );
     }
 
+    let direct: MediaDownloadResult | undefined;
     try {
-      return await this.downloadMediaViaPage(msgId);
+      direct = await this.downloadMediaViaPage(msgId);
     } catch (error) {
       logWhatsApp(
         `Direct media download also failed for message ${msgId}: ${formatError(error)}`,
       );
-      return undefined;
+      direct = { reason: `direct media download failed: ${formatError(error)}` };
     }
+
+    if (direct && "media" in direct) return direct;
+
+    const directReason = direct && "reason" in direct ? direct.reason : undefined;
+    const reason = libraryError
+      ? `library download failed (${formatError(libraryError)})` +
+        (directReason ? `; direct download: ${directReason}` : "")
+      : (directReason ?? "no download path produced media");
+    return { reason };
   }
 
   private async downloadMediaViaPage(
     msgId: string,
-  ): Promise<RawWhatsAppMedia | undefined> {
+  ): Promise<MediaDownloadResult> {
     if (!this.client.pupPage) {
       logWhatsApp(`Direct media download unavailable for ${msgId}: puppeteer page not initialized`);
-      return undefined;
+      return { reason: "puppeteer page not initialized" };
     }
 
     const result = await this.client.pupPage.evaluate(
-      async (id: string) => {
+      async (id: string): Promise<
+        | { data: string; mimetype: string; filename?: string | null }
+        | { reason: string }
+      > => {
         const msg = (window as any).require("WAWebCollections").Msg.get(id);
-        if (!msg?.mediaData) return undefined;
+        if (!msg?.mediaData) return { reason: "message has no mediaData in the page" };
 
         if (msg.mediaData.mediaStage !== "RESOLVED") {
           try {
@@ -747,16 +775,19 @@ implements InboundChannel, WhatsAppSender, WhatsAppChatSender, WhatsAppPairing {
               downloadEvenIfExpensive: true,
               rmrReason: 1,
             });
-          } catch {
-            return undefined;
+          } catch (error: any) {
+            return { reason: `downloadMedia failed at mediaStage=${msg.mediaData.mediaStage}: ${String(error?.message ?? error)}` };
           }
         }
 
         if (
+          !msg.mediaData.mediaStage ||
           msg.mediaData.mediaStage.includes("ERROR") ||
           msg.mediaData.mediaStage === "FETCHING"
         ) {
-          return undefined;
+          return { reason: !msg.mediaData.mediaStage
+            ? "mediaStage is missing (media not resolvable in the page)"
+            : `mediaStage is ${msg.mediaData.mediaStage} (media errored or still fetching)` };
         }
 
         try {
@@ -792,22 +823,31 @@ implements InboundChannel, WhatsAppSender, WhatsAppChatSender, WhatsAppPairing {
             data,
             mimetype: msg.mimetype,
             filename: msg.filename,
-            filesize: msg.size,
           };
         } catch (e: any) {
-          if (e.status && e.status === 404) return undefined;
-          throw e;
+          if (e.status && e.status === 404) return { reason: "WhatsApp returned 404 (media expired or pruned)" };
+          return { reason: `downloadAndMaybeDecrypt failed: ${String(e?.message ?? e)}` };
         }
       },
       msgId,
     );
 
-    if (!result) return undefined;
+    if (!result) {
+      logWhatsApp(`Direct media download unavailable for ${msgId}: page returned nothing`);
+      return { reason: "page returned nothing (message not found in WhatsApp Web)" };
+    }
+
+    if ("reason" in result) {
+      logWhatsApp(`Direct media download failed for ${msgId}: ${result.reason}`);
+      return result;
+    }
 
     return {
-      data: result.data,
-      mimetype: result.mimetype,
-      filename: result.filename ?? null,
+      media: {
+        data: result.data,
+        mimetype: result.mimetype,
+        filename: result.filename ?? null,
+      },
     };
   }
 }
