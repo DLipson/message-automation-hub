@@ -51,35 +51,6 @@ jobs:
           push: true
           tags: ghcr.io/dlipson/message-automation-hub:stage-${{ github.sha }}
 
-  inspect-stage:
-    if: github.event_name == 'workflow_dispatch'
-    runs-on: ubuntu-latest
-
-    steps:
-      - uses: actions/checkout@v4
-
-      - id: auth
-        uses: google-github-actions/auth@v3
-        with:
-          workload_identity_provider: ${{ vars.GCP_WORKLOAD_IDENTITY_PROVIDER }}
-          service_account: ${{ vars.GCP_SERVICE_ACCOUNT }}
-          project_id: ${{ vars.GCP_PROJECT_ID }}
-
-      - uses: google-github-actions/setup-gcloud@v3
-
-      - name: Inspect stage container, session, and logs (read-only)
-        env:
-          GCP_PROJECT_ID: ${{ vars.GCP_PROJECT_ID }}
-          GCP_ZONE: ${{ vars.STAGING_GCP_ZONE }}
-          GCP_INSTANCE: ${{ vars.STAGING_GCP_INSTANCE }}
-        run: |
-          gcloud compute ssh "$GCP_INSTANCE" \
-            --project "$GCP_PROJECT_ID" \
-            --zone "$GCP_ZONE" \
-            --tunnel-through-iap \
-            --quiet \
-            --command 'set -e; echo "=== volume name ==="; docker volume ls --format "{{.Name}}" | grep -i whatsapp; echo "=== container ==="; docker ps --filter name=message-automation-hub --format "{{.Status}} {{.RestartCount}}"; echo "=== session dir (host volume) ==="; VOL=$(docker volume inspect message-automation-hub_whatsapp-session --format "{{.Mountpoint}}"); ls -la "$VOL/session/" 2>&1 | head -30; echo "=== data store files ==="; du -sh "$VOL" 2>&1; echo "=== app logs (60 min) ==="; docker logs message-automation-hub --since 60m --timestamps 2>&1 | tail -60'
-
   deploy-prod:
     needs: verify
     if: github.ref_name == 'master' && vars.GCP_WORKLOAD_IDENTITY_PROVIDER != '' && vars.GCP_SERVICE_ACCOUNT != '' && vars.GCP_PROJECT_ID != '' && vars.GCP_ZONE != '' && vars.GCP_INSTANCE != ''
