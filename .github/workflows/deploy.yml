@@ -78,7 +78,7 @@ jobs:
             --zone "$GCP_ZONE" \
             --tunnel-through-iap \
             --quiet \
-            --command 'set -e; echo "=== volume name ==="; sudo docker volume ls --format "{{.Name}}" | grep -i whatsapp; echo "=== container ==="; sudo docker ps --filter name=message-automation-hub --format "table {{.Names}}\t{{.Status}}"; echo "=== session dir (host volume) ==="; VOL=$(sudo docker volume inspect message-automation-hub_whatsapp-session --format "{{.Mountpoint}}"); ls -la "$VOL/session/" 2>&1 | head -30; echo "=== data store files ==="; sudo du -sh "$VOL" 2>&1; echo "=== app logs (60 min) ==="; sudo docker logs message-automation-hub --since 60m --timestamps 2>&1 | tail -60'
+            --command 'set -e; echo "=== volume name ==="; sudo docker volume ls --format "{{.Name}}" | grep -i whatsapp; echo "=== container ==="; sudo docker ps --filter name=message-automation-hub --format "{{.Status}} {{.RestartCount}}"; echo "=== session dir (host volume) ==="; VOL=$(sudo docker volume inspect message-automation-hub_whatsapp-session --format "{{.Mountpoint}}"); ls -la "$VOL/session/" 2>&1 | head -30; echo "=== data store files ==="; sudo du -sh "$VOL" 2>&1; echo "=== app logs (60 min) ==="; sudo docker logs message-automation-hub --since 60m --timestamps 2>&1 | tail -60'
 
   deploy-prod:
     needs: verify
