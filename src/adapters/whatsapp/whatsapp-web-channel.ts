@@ -146,6 +146,7 @@ implements InboundChannel, WhatsAppSender, WhatsAppChatSender, WhatsAppPairing {
       authStrategy: new LocalAuth(),
       puppeteer: {
         args: browserArgs(),
+        protocolTimeout: 120_000,
       },
     });
   }
