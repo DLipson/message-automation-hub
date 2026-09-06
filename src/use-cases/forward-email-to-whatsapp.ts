@@ -1,7 +1,7 @@
 import type { InboundEmail } from "../domain/email.js";
 import { formatError } from "../errors.js";
 import { isImageAttachment, type MediaAttachment } from "../domain/media.js";
-import type { AppLogger } from "../ports/app-logger.js";
+import { type AppLogger, silentLogger } from "../ports/app-logger.js";
 import type { EmailInbox, EmailStatusMarker } from "../ports/email-inbox.js";
 import type { EmailSender } from "../ports/email-sender.js";
 import type { SentMessage, WhatsAppSender } from "../ports/whatsapp-sender.js";
@@ -10,10 +10,6 @@ import type {
   EmailAutomationHandler,
 } from "./process-email-automations.js";
 import { parseSubjectCommand } from "./process-email-automations.js";
-
-const silentLogger: AppLogger = {
-  info() {},
-};
 
 const threeMinutesMs = 3 * 60 * 1000;
 const fiveMinutesMs = 5 * 60 * 1000;
