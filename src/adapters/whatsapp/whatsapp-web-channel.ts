@@ -1,5 +1,4 @@
 import pkg from "whatsapp-web.js";
-import type { Chat } from "whatsapp-web.js";
 import { platform } from "node:os";
 import { appDefaults } from "../../config.js";
 import { formatError } from "../../errors.js";
@@ -26,6 +25,13 @@ import {
   JsonWhatsAppCatchUpStore,
   type CatchUpState,
 } from "./json-whatsapp-catch-up-store.js";
+import {
+  CatchUpSweep,
+  logWhatsApp,
+  messageIdFor,
+  serializedIdOf,
+  type RawWhatsAppMessage,
+} from "./whatsapp-catch-up-sweep.js";
 
 const { Client, LocalAuth, MessageMedia } = pkg;
 const maxSignedIntTimerDelayMs = 2_147_483_647;
@@ -71,36 +77,6 @@ type MediaDownloadResult =
   | { media: RawWhatsAppMedia }
   | { reason: string };
 
-type RawWhatsAppMessage = {
-  id: { _serialized: string; "$1"?: string };
-  from: string;
-  author?: string;
-  body: string;
-  timestamp: number;
-  hasMedia?: boolean;
-  type?: string;
-  inviteV4?: WhatsAppGroupInviteV4;
-  downloadMedia?: () => Promise<RawWhatsAppMedia | undefined>;
-  _data?: { notifyName?: string };
-};
-
-// ponytail: WhatsApp Web renames this field without notice (_serialized -> $1, July 2026).
-// Every read of a message's serialized id goes through here, so the next rename is one edit.
-function serializedIdOf(message: RawWhatsAppMessage): string | undefined {
-  const id = message.id;
-
-  if (typeof id === "string") {
-    return id;
-  }
-
-  if (!id || typeof id !== "object") {
-    return undefined;
-  }
-
-  const holder = id as { _serialized?: string; "$1"?: string };
-  return holder._serialized || holder.$1 || undefined;
-}
-
 // The library's own downloadMedia() reads id._serialized directly, so populate it too.
 function normalizeId(message: RawWhatsAppMessage): void {
   const id = message.id;
@@ -120,7 +96,7 @@ implements InboundChannel, WhatsAppSender, WhatsAppChatSender, WhatsAppPairing {
   private readonly forwardGroups: WhatsAppForwardFilter;
   private readonly readyNotification?: WhatsAppWebChannelConfig["readyNotification"];
   private readonly errorNotification?: WhatsAppWebChannelConfig["errorNotification"];
-  private readonly catchUp?: WhatsAppWebChannelConfig["catchUp"];
+  private readonly catchUpSweep: CatchUpSweep;
   private handler?: InboundMessageHandler;
   private groupInviteHandler?: WhatsAppGroupInviteHandler;
   private pairingCodeRequests = 0;
@@ -128,7 +104,6 @@ implements InboundChannel, WhatsAppSender, WhatsAppChatSender, WhatsAppPairing {
   private readyNotificationSent = false;
   private sessionEndHandled = false;
   private catchUpPending = true;
-  private catchUpInFlight = false;
   private catchUpState: CatchUpState | null = null;
   private linked = false;
   private unlinkedNotified = false;
@@ -141,7 +116,22 @@ implements InboundChannel, WhatsAppSender, WhatsAppChatSender, WhatsAppPairing {
     this.forwardGroups = config.forwardGroups ?? {};
     this.readyNotification = config.readyNotification;
     this.errorNotification = config.errorNotification;
-    this.catchUp = config.catchUp;
+    this.catchUpSweep = new CatchUpSweep({
+      store: config.catchUp?.store,
+      chatLimit: config.catchUp?.chatLimit,
+      messageLimitPerChat: config.catchUp?.messageLimitPerChat,
+      getChats: () => this.client.getChats(),
+      toInboundMessage: message => this.toInboundMessage(message),
+      shouldHandle: message => this.shouldHandle(message),
+      notifyError: (subject, text) => this.notifyError(subject, text),
+      serializedIdOf,
+      messageIdFor,
+      log: logWhatsApp,
+      stateRef: {
+        get: () => this.catchUpState,
+        set: state => { this.catchUpState = state; },
+      },
+    });
     this.client = new Client({
       authStrategy: new LocalAuth(),
       puppeteer: {
@@ -153,6 +143,7 @@ implements InboundChannel, WhatsAppSender, WhatsAppChatSender, WhatsAppPairing {
 
   onMessage(handler: InboundMessageHandler): void {
     this.handler = handler;
+    this.catchUpSweep.setForward(handler);
   }
 
   onGroupInvite(handler: WhatsAppGroupInviteHandler): void {
@@ -181,7 +172,7 @@ implements InboundChannel, WhatsAppSender, WhatsAppChatSender, WhatsAppPairing {
       this.linked = true;
       this.unlinkedNotified = false;
       this.sendReadyNotification();
-      void this.runCatchUpIfPending();
+      void this.catchUpSweep.runCatchUpIfPending();
     });
 
     this.client.on("disconnected", reason => {
@@ -280,7 +271,7 @@ implements InboundChannel, WhatsAppSender, WhatsAppChatSender, WhatsAppPairing {
         }
 
         await this.handler(await this.toInboundMessage(rawMessage));
-        this.trackWatermark(rawMessage.from, rawMessage.timestamp);
+        this.catchUpSweep.trackWatermark(rawMessage.from, rawMessage.timestamp);
       } catch (error) {
         const errorText = formatError(error);
         logWhatsApp(`Message handler failed for message ${msgId}: ${errorText}`);
@@ -418,144 +409,6 @@ implements InboundChannel, WhatsAppSender, WhatsAppChatSender, WhatsAppPairing {
     } catch (sendError) {
       logWhatsApp(`Failed to send error notification: ${formatError(sendError)}`);
     }
-  }
-
-  // Advances the persisted catch-up watermark after a message is forwarded.
-  // `from` is the chat id for DMs and groups (`@c.us`/`@lid`/`@g.us`), matching
-  // what the sweep keys on. The save rides the store's write queue.
-  private trackWatermark(chatId: string | undefined, timestamp: number): void {
-    if (!this.catchUp) return;
-    if (!chatId) return;
-    const state = this.catchUpState;
-    if (!state || !state.initialized) return;
-    const existing = state.chats[chatId] ?? 0;
-    if (timestamp <= existing) return;
-    state.chats[chatId] = timestamp;
-    void this.catchUp.store.save(state).catch(error => {
-      logWhatsApp(`Failed to persist catch-up watermark: ${formatError(error)}`);
-    });
-  }
-
-  // Runs after the first `ready` and again after any `disconnected` + `ready`.
-  // Sweeps the chats WhatsApp Web has loaded and forwards messages newer than the
-  // last one we already handled, so an offline window (crash, logout) is not lost.
-  // Idempotent via the watermark: the 8x `ready` re-sync storm finds nothing new.
-  private async runCatchUpIfPending(): Promise<void> {
-    if (this.catchUpInFlight) return;
-    if (!this.catchUp || !this.handler) return;
-
-    this.catchUpInFlight = true;
-    try {
-      const state = this.catchUpState ??= await this.catchUp.store.load();
-      if (!state.initialized) {
-        state.initialized = true;
-        state.baseline = Math.floor(Date.now() / 1000);
-        await this.catchUp.store.save(state);
-        logWhatsApp(
-          "Recorded catch-up baseline; not forwarding pre-existing history.",
-        );
-        return;
-      }
-      this.catchUpPending = false;
-      if (Object.keys(state.chats).length === 0) return;
-      await this.sweepForMissedMessages(state);
-    } catch (error) {
-      logWhatsApp(`Catch-up scan failed: ${formatError(error)}`);
-    } finally {
-      this.catchUpInFlight = false;
-    }
-  }
-
-  private async sweepForMissedMessages(state: CatchUpState): Promise<void> {
-    const chatLimit = this.catchUp?.chatLimit ?? 50;
-    const messageLimit = this.catchUp?.messageLimitPerChat ?? 50;
-    const watermarks = Object.values(state.chats);
-    // A chat with no watermark yet starts from the catch-up baseline (or the oldest
-    // watermark on stores written before `baseline` existed), so a first-contact
-    // message during an offline/stuck window is still recovered.
-    const startingFor = (chatId: string): number =>
-      state.chats[chatId] ?? state.baseline
-        ?? (watermarks.length > 0 ? Math.min(...watermarks) : 0);
-
-    const chats = await this.getChatsWithRetry();
-    for (const chat of chats.slice(0, chatLimit)) {
-      const chatId = serializedIdOf(chat.id as unknown as RawWhatsAppMessage);
-      if (!chatId) continue;
-      const starting = startingFor(chatId);
-      const lastTs = chat.lastMessage?.timestamp;
-      if (lastTs !== undefined && lastTs <= starting) continue;
-
-      try {
-        const messages = await chat.fetchMessages({ limit: messageLimit });
-        const candidates = messages.filter(message =>
-          !message.fromMe &&
-          message.timestamp > starting &&
-          this.shouldHandle(message as unknown as RawWhatsAppMessage),
-        );
-
-        // Advance the watermark to whatever the page has loaded so a second sweep
-        // (or a concurrent live message) does not re-forward it.
-        const newest = messages[messages.length - 1]?.timestamp;
-        if (newest !== undefined && newest > starting) {
-          state.chats[chatId] = newest;
-        }
-
-        for (const message of candidates) {
-          try {
-            const inbound = await this.toInboundMessage(
-              message as unknown as RawWhatsAppMessage,
-            );
-            await this.handler!(inbound);
-            logWhatsApp(
-              `Catch-up forwarded message ${messageIdFor(message as unknown as RawWhatsAppMessage)} from ${chatId}`,
-            );
-            const ts = message.timestamp;
-            if (ts > (state.chats[chatId] ?? 0)) {
-              state.chats[chatId] = ts;
-            }
-          } catch (error) {
-            const msgId = messageIdFor(message as unknown as RawWhatsAppMessage);
-            const errorText = formatError(error);
-            logWhatsApp(`Catch-up failed for message ${msgId}: ${errorText}`);
-            await this.notifyError(
-              "WhatsApp catch-up message failed",
-              `Message ID: ${msgId}\nChat: ${chatId}\nTime: ${new Date(message.timestamp * 1000).toISOString()}\n\nError:\n${errorText}`,
-            );
-          }
-        }
-
-        await this.catchUp!.store.save(state);
-      } catch (error) {
-        const errorText = formatError(error);
-        logWhatsApp(`Catch-up sweep failed for chat ${chatId}: ${errorText}`);
-        await this.notifyError(
-          "WhatsApp catch-up sweep failed",
-          `Chat: ${chatId}\n\nError:\n${errorText}`,
-        );
-      }
-    }
-  }
-
-  // ponytail: the sweep runs ~seconds after `ready`, while the page is still
-  // syncing chats, so getChats()'s page evaluate can throw (seen 2026-08-17 as
-  // "Catch-up scan failed: r: r"). Retry a few times with a short delay; the
-  // whole sweep previously died on the first transient failure.
-  private async getChatsWithRetry(): Promise<Chat[]> {
-    let lastError: unknown;
-    for (let attempt = 1; attempt <= 3; attempt += 1) {
-      try {
-        return await this.client.getChats();
-      } catch (error) {
-        lastError = error;
-        if (attempt < 3) {
-          logWhatsApp(
-            `Catch-up chat list attempt ${attempt} failed, retrying in 5s: ${formatError(error)}`,
-          );
-          await new Promise(resolve => setTimeout(resolve, 5000));
-        }
-      }
-    }
-    throw lastError;
   }
 
   private async sendAndTrack(
@@ -882,24 +735,6 @@ function browserArgs(): string[] {
   ];
 }
 
-function messageIdFor(message: RawWhatsAppMessage): string {
-  const serialized = serializedIdOf(message);
-  if (serialized) return serialized;
-
-  const id = message.id;
-  if (id && typeof id === "object") {
-    // LID messages carry a short id plus fromMe; the serialized form is {fromMe}_{remote}_{id}.
-    const idObj = id as { id?: string; fromMe?: boolean };
-    if (idObj.id && message.from) {
-      return `${idObj.fromMe === true ? "true" : "false"}_${message.from}_${idObj.id}`;
-    }
-
-    if (idObj.id) return idObj.id;
-  }
-
-  try { return JSON.stringify(id); } catch { return "unknown"; }
-}
-
 function senderLabelFor(message: RawWhatsAppMessage): string {
   const displayName = message._data?.notifyName;
   return displayName ? `${displayName} (${message.from})` : message.from;
@@ -933,10 +768,6 @@ function filenameFor(mimetype: string): string | undefined {
   const ext = clean.slice(slashIdx + 1);
   if (!ext || ext.includes(" ")) return undefined;
   return `${clean.slice(0, slashIdx)}.${ext}`;
-}
-
-function logWhatsApp(message: string): void {
-  console.log(`[${new Date().toISOString()}] WhatsApp ${message}`);
 }
 
 function withTimeout<T>(
