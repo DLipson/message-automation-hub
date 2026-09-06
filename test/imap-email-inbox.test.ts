@@ -145,6 +145,29 @@ describe("ImapEmailInbox", () => {
       vi.useRealTimers();
     });
 
+    it("catches and logs a rejected async callback instead of leaking an unhandled rejection", async () => {
+      vi.useFakeTimers();
+      const inbox = new ImapEmailInbox(config());
+      const onNewMail = vi.fn(async () => {
+        throw new Error("onNewMail failed");
+      });
+
+      const stop = await inbox.watchNewMail(onNewMail);
+      const client = imapMock.clients.find(c => c.on.mock.calls.length > 0);
+      const existsHandler = client?.on.mock.calls.find(
+        (args: any[]) => args[0] === "exists",
+      )?.[1] as (() => void) | undefined;
+
+      existsHandler?.();
+      await vi.advanceTimersByTimeAsync(1100);
+      await vi.waitFor(() =>
+        expect(console.error).toHaveBeenCalledWith("IMAP watcher error: onNewMail failed"),
+      );
+
+      await stop();
+      vi.useRealTimers();
+    });
+
     it("stop function logs out and cleans up", async () => {
       const inbox = new ImapEmailInbox(config());
       const callback = vi.fn();
