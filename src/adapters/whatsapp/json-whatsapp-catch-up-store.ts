@@ -1,8 +1,6 @@
-import { randomBytes } from "node:crypto";
-import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { defaultEnvFilePath } from "../../config.js";
-import { isFileMissing } from "../../errors.js";
+import { AtomicJsonFile } from "../atomic/atomic-json-file.js";
 
 /**
  * Persisted per-chat watermark for the catch-up sweep.
@@ -19,43 +17,26 @@ export type CatchUpState = {
 };
 
 export class JsonWhatsAppCatchUpStore {
-  private writeQueue = Promise.resolve();
+  private readonly file: AtomicJsonFile<CatchUpState>;
 
-  constructor(private readonly filePath: string) {}
+  constructor(filePath: string) {
+    this.file = new AtomicJsonFile<CatchUpState>(filePath);
+  }
 
   async load(): Promise<CatchUpState> {
-    try {
-      const raw = JSON.parse(
-        await readFile(this.filePath, "utf8"),
-      ) as Partial<CatchUpState>;
-      return {
-        initialized: Boolean(raw.initialized),
-        chats: raw.chats ?? {},
-        ...(typeof raw.baseline === "number" ? { baseline: raw.baseline } : {}),
-      };
-    } catch (error) {
-      if (isFileMissing(error)) {
-        return { initialized: false, chats: {} };
-      }
-      throw error;
+    const raw = await this.file.readRaw();
+    if (raw === null) {
+      return { initialized: false, chats: {} };
     }
+    return {
+      initialized: Boolean(raw.initialized),
+      chats: raw.chats ?? {},
+      ...(typeof raw.baseline === "number" ? { baseline: raw.baseline } : {}),
+    };
   }
 
   save(state: CatchUpState): Promise<void> {
-    return this.enqueue(() => this.atomicWrite(state));
-  }
-
-  private async atomicWrite(state: CatchUpState): Promise<void> {
-    await mkdir(dirname(this.filePath), { recursive: true });
-    const tempPath = `${this.filePath}.${process.pid}.${Date.now()}.${randomBytes(4).toString("hex")}.tmp`;
-    await writeFile(tempPath, `${JSON.stringify(state, null, 2)}\n`);
-    await rename(tempPath, this.filePath);
-  }
-
-  private async enqueue<T>(operation: () => Promise<T>): Promise<T> {
-    const result = this.writeQueue.then(operation, operation);
-    this.writeQueue = result.then(() => undefined, () => undefined);
-    return await result;
+    return this.file.enqueue(() => this.file.save(state));
   }
 }
 
