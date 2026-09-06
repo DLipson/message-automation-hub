@@ -4,6 +4,7 @@ import {
   CatchUpSweep,
   messageIdFor,
   serializedIdOf,
+  type CatchUpStateRef,
 } from "../src/adapters/whatsapp/whatsapp-catch-up-sweep.js";
 import type { CatchUpState } from "../src/adapters/whatsapp/json-whatsapp-catch-up-store.js";
 
@@ -15,12 +16,20 @@ type FetchedMessage = {
   timestamp: number;
 };
 
+type StoreLike = {
+  load(): Promise<CatchUpState>;
+  save(state: CatchUpState): Promise<void>;
+};
+
+// A real file-backed store reads fresh bytes off disk on every load, so the fake
+// must hand back a FRESH CLONE per load too. `persisted()` returns the live
+// snapshot for seeding a "restart"; `load`/`save` never share an object reference.
 function fakeStore(initial: CatchUpState) {
-  let persisted = initial;
+  let persisted = structuredClone(initial);
   return {
-    persisted: () => persisted,
-    load: vi.fn(async () => persisted),
-    save: vi.fn(async (state: CatchUpState) => { persisted = state; }),
+    persisted: () => structuredClone(persisted),
+    load: vi.fn(async () => structuredClone(persisted)),
+    save: vi.fn(async (state: CatchUpState) => { persisted = structuredClone(state); }),
   };
 }
 
@@ -32,11 +41,15 @@ function makeChat(messages: FetchedMessage[]): Chat {
   } as unknown as Chat;
 }
 
+// Returns the sweep plus a live handle on the stateRef it shares with the
+// caller, so a test can drive the ref exactly like the channel does.
 function makeSweep(deps: {
-  store: ReturnType<typeof fakeStore>;
+  store: StoreLike;
   getChats?: () => Promise<Chat[]>;
   log?: (message: string) => void;
+  stateRef?: CatchUpStateRef;
 }) {
+  let holder: CatchUpState | null = null;
   const sweep = new CatchUpSweep({
     store: deps.store,
     getChats: deps.getChats ?? (async () => []),
@@ -52,9 +65,12 @@ function makeSweep(deps: {
     serializedIdOf,
     messageIdFor,
     log: deps.log ?? (() => {}),
-    stateRef: { get: () => null, set: () => {} },
+    stateRef: deps.stateRef ?? {
+      get: () => holder,
+      set: state => { holder = state; },
+    },
   });
-  return sweep;
+  return { sweep, holder: () => holder };
 }
 
 afterEach(() => {
@@ -69,7 +85,7 @@ describe("CatchUpSweep", () => {
     const getChats = vi.fn()
       .mockRejectedValueOnce(new Error("page still syncing"))
       .mockResolvedValueOnce([]);
-    const sweep = makeSweep({
+    const { sweep } = makeSweep({
       store: fakeStore({ initialized: true, chats: { "123@c.us": 0 } }),
       getChats,
       log,
@@ -88,7 +104,7 @@ describe("CatchUpSweep", () => {
     const store = fakeStore({ initialized: false, chats: {} });
     const getChats = vi.fn();
     const forwarded: unknown[] = [];
-    const sweep = makeSweep({ store, getChats: getChats as never });
+    const { sweep } = makeSweep({ store, getChats: getChats as never });
     sweep.setForward(async message => { forwarded.push(message); });
 
     await sweep.runCatchUpIfPending();
@@ -112,7 +128,7 @@ describe("CatchUpSweep", () => {
       { id: { _serialized: "m-new" }, fromMe: false, from: "123@c.us", body: "new", timestamp: 200 },
     ]);
     const forwarded: string[] = [];
-    const sweep = makeSweep({ store, getChats: async () => [chat] });
+    const { sweep } = makeSweep({ store, getChats: async () => [chat] });
     sweep.setForward(async message => { forwarded.push(message.text); });
 
     await sweep.runCatchUpIfPending();
@@ -132,7 +148,7 @@ describe("CatchUpSweep", () => {
       { id: { _serialized: "m-new" }, fromMe: false, from: "123@c.us", body: "new", timestamp: 200 },
     ]);
     const firstForwarded: string[] = [];
-    const firstSweep = makeSweep({ store: firstRunStore, getChats: async () => [chat] });
+    const { sweep: firstSweep } = makeSweep({ store: firstRunStore, getChats: async () => [chat] });
     firstSweep.setForward(async message => { firstForwarded.push(message.text); });
 
     await firstSweep.runCatchUpIfPending();
@@ -144,7 +160,7 @@ describe("CatchUpSweep", () => {
       { id: { _serialized: "m-old" }, fromMe: false, from: "123@c.us", body: "old", timestamp: 50 },
       { id: { _serialized: "m-new" }, fromMe: false, from: "123@c.us", body: "new", timestamp: 200 },
     ]);
-    const restartedSweep = makeSweep({
+    const { sweep: restartedSweep } = makeSweep({
       store: restartedStore,
       getChats: async () => [restartedChat],
     });
@@ -153,5 +169,47 @@ describe("CatchUpSweep", () => {
     await restartedSweep.runCatchUpIfPending();
 
     expect(restartedForwarded).toEqual([]);
+  });
+
+  it("shares one CatchUpState object between the live path and the sweep", async () => {
+    let persisted: CatchUpState = {
+      initialized: true,
+      chats: { "123@c.us": 100 },
+      baseline: 100,
+    };
+    let holder: CatchUpState | null = null;
+    let loads = 0;
+    // Chat list appears only after the "page sync" (mirrors the ready re-sync
+    // storm: run 1 loads the holder while no chats are visible yet).
+    let chatVisible = false;
+    const store: StoreLike = {
+      load: async () => { loads += 1; return structuredClone(persisted); },
+      save: async (state: CatchUpState) => { persisted = structuredClone(state); },
+    };
+    const chat = makeChat([
+      { id: { _serialized: "m-new" }, fromMe: false, from: "123@c.us", body: "new", timestamp: 200 },
+    ]);
+    const forwarded: string[] = [];
+    const { sweep } = makeSweep({
+      store,
+      getChats: async () => (chatVisible ? [chat] : []),
+      stateRef: { get: () => holder, set: s => { holder = s; } },
+    });
+    sweep.setForward(async message => { forwarded.push(message.text); });
+
+    // Run 1 lazily loads the store into the shared holder; nothing to sweep yet.
+    await sweep.runCatchUpIfPending();
+    expect(loads).toBe(1);
+
+    // The live-message path advances the SAME object the sweep holds.
+    sweep.trackWatermark("123@c.us", 200);
+
+    // Run 2 now sees the ts-200 chat; it must find nothing to forward because
+    // the holder already carries the watermark the live path wrote.
+    chatVisible = true;
+    await sweep.runCatchUpIfPending();
+
+    expect(forwarded).toEqual([]);
+    expect(loads).toBe(1);
   });
 });
