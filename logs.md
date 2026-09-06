@@ -1,5 +1,14 @@
 # Logs
 
+## 2026-09-06 - Media download fails on images served as application/octet-stream
+
+- **Symptom** - Error email: `Message Automation Hub could not download media from a WhatsApp message. Reason: library download failed (t: t ...); direct download: downloadAndMaybeDecrypt failed: Unexpected mimetype application/octet-stream for media type image`.
+- **Root cause** - WhatsApp Web served the image's bytes with mimetype `application/octet-stream` (old/migrated chats normalize media metadata to a generic mimetype) while the model says `type: image`. WAB's `downloadAndMaybeDecrypt()` hard-rejects `image` + `application/octet-stream` before handing over the decrypted bytes. Both download paths route through that same helper: the library's `downloadMedia()` (whatsapp-web.js `Message.js`) and our direct `downloadMediaViaPage` fallback (`whatsapp-web-channel.ts`). The `t: t` library error is the same throw mangled by puppeteer's evaluate serialization.
+- **Key detail** - `downloadMediaViaPage` already runs `msg.downloadMedia()` first (to reach `mediaStage RESOLVED`); it succeeded. After success WAB holds the decrypted bytes in a Blob on the model (`msg.mediaData.mediaBlob`), which the code ignored in favor of a redundant `downloadAndMaybeDecrypt` call — the call that then threw.
+- **Fix** - In `downloadMediaViaPage`, after RESOLVED, read the already-decrypted `msg.mediaData.mediaBlob` and base64 it via `WWebJS.arrayBufferToBase64Async`; only fall back to `downloadAndMaybeDecrypt` when no blob exists.
+- **Verification** - `tsc --noEmit` clean; all 257 tests pass. Blob path not exercised by unit tests (page-side code only runs against a real WhatsApp Web load, same limitation as earlier mediaStage branches).
+- **Open** - Confirm on the stage deployment that an affected image now forwards. If `mediaBlob` is not populated on the deployed WAB version, behavior falls back to today's path unchanged; may need to capture the resolved value of `msg.downloadMedia()` instead.
+
 ## 2026-09-02 - WhatsApp media download failure emails now carry the reason
 
 - **Symptom** - Error emails said only "Message Automation Hub could not download media... forwarded without attachments" with no clue WHY. Seen as group-message (catch-up) image forwards where `hasMedia` was true but bytes were unreachable.
