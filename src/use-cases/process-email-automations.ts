@@ -1,7 +1,11 @@
 import type { InboundEmail } from "../domain/email.js";
 import { formatError } from "../errors.js";
-import type { PluginContext } from "../api/index.js";
+import type { EventMap } from "../api/index.js";
 import type { EmailInbox, EmailStatusMarker } from "../ports/email-inbox.js";
+
+export interface EmailEmitter {
+  emit<E extends keyof EventMap>(event: E, payload: EventMap[E]): Promise<boolean>;
+}
 
 export type EmailAutomationBatch = {
   sentWhatsAppImage: boolean;
@@ -66,7 +70,7 @@ export function parseSubjectCommand(subject: string, prefix: string): string | n
 export class ProcessEmailAutomations {
   constructor(
     private readonly inbox: EmailInbox,
-    private readonly ctx: Pick<PluginContext, "emit">,
+    private readonly ctx: EmailEmitter,
   ) {}
 
   async processUnread(): Promise<void> {
