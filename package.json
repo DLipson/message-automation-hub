@@ -20,7 +20,7 @@
     "start:settings": "node dist/settings/settings-server.js",
     "secret:set:smtp": "tsx src/tools/set-smtp-password.ts",
     "typecheck": "tsc --noEmit",
-    "build": "tsc -p tsconfig.build.json",
+    "build": "tsc -p tsconfig.build.json && node -e \"fs.copyFileSync('src/settings/settings-page.html','dist/settings/settings-page.html')\" && node -e \"if(!require('fs').existsSync('dist/settings/settings-page.html')){console.error('settings-page.html missing from dist');process.exit(1)}\"",
     "prepare": "npm run build",
     "test": "vitest run"
   },
