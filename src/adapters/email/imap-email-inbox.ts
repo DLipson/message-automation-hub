@@ -123,7 +123,8 @@ export class ImapEmailInbox implements EmailInbox, EmailLabeler, EmailStatusMark
       if (debounceTimer) clearTimeout(debounceTimer);
       debounceTimer = setTimeout(() => {
         debounceTimer = undefined;
-        if (!stopped) onNewMail();
+        if (stopped) return;
+        void Promise.resolve(onNewMail()).catch(error => console.error(`IMAP watcher error: ${errorMessage(error)}`));
       }, 1000);
     };
 
