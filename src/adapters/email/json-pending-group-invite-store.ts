@@ -1,24 +1,24 @@
-import { randomBytes } from "node:crypto";
-import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { defaultEnvFilePath } from "../../config.js";
-import { isFileMissing } from "../../errors.js";
 import type {
   PendingGroupInvite,
   PendingGroupInviteDetails,
   PendingGroupInviteStore,
 } from "../../use-cases/pending-group-invite-store.js";
+import { AtomicJsonFile } from "../atomic/atomic-json-file.js";
 
 export class JsonPendingGroupInviteStore implements PendingGroupInviteStore {
-  private writeQueue = Promise.resolve();
+  private readonly file: AtomicJsonFile<PendingGroupInvite[]>;
 
-  constructor(private readonly filePath: string) {}
+  constructor(filePath: string) {
+    this.file = new AtomicJsonFile<PendingGroupInvite[]>(filePath);
+  }
 
   async put(token: string, invite: PendingGroupInviteDetails): Promise<void> {
-    await this.enqueue(async () => {
+    await this.file.enqueue(async () => {
       const invites = await this.readInvites();
       const next = [...invites.filter(existing => existing.token !== token), { token, ...invite }];
-      await this.writeInvites(next);
+      await this.file.save(next);
     });
   }
 
@@ -27,35 +27,14 @@ export class JsonPendingGroupInviteStore implements PendingGroupInviteStore {
   }
 
   async remove(token: string): Promise<void> {
-    await this.enqueue(async () => {
+    await this.file.enqueue(async () => {
       const invites = await this.readInvites();
-      await this.writeInvites(invites.filter(invite => invite.token !== token));
+      await this.file.save(invites.filter(invite => invite.token !== token));
     });
   }
 
-  private async enqueue<T>(operation: () => Promise<T>): Promise<T> {
-    const result = this.writeQueue.then(operation, operation);
-    this.writeQueue = result.then(() => undefined, () => undefined);
-    return await result;
-  }
-
   private async readInvites(): Promise<PendingGroupInvite[]> {
-    try {
-      return JSON.parse(await readFile(this.filePath, "utf8")) as PendingGroupInvite[];
-    } catch (error) {
-      if (isFileMissing(error)) {
-        return [];
-      }
-
-      throw error;
-    }
-  }
-
-  private async writeInvites(invites: PendingGroupInvite[]): Promise<void> {
-    await mkdir(dirname(this.filePath), { recursive: true });
-    const tempPath = `${this.filePath}.${process.pid}.${Date.now()}.${randomBytes(6).toString("hex")}.tmp`;
-    await writeFile(tempPath, `${JSON.stringify(invites, null, 2)}\n`);
-    await rename(tempPath, this.filePath);
+    return (await this.file.readRaw()) ?? [];
   }
 }
 
