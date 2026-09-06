@@ -3,6 +3,13 @@ import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import { dirname } from "node:path";
 import { isFileMissing } from "../../errors.js";
 
+/**
+ * Atomic JSON file with a single write queue carried by this class.
+ *
+ * `save()` is deliberately NOT queued: a self-enqueuing save nested inside an
+ * `enqueue()` read-modify-write would wait on itself and deadlock. Wrap the whole
+ * read-modify-write cycle in `enqueue()` and never call `save()` inside one.
+ */
 export class AtomicJsonFile<T> {
   private writeQueue = Promise.resolve();
 
