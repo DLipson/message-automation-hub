@@ -645,6 +645,23 @@ implements InboundChannel, WhatsAppSender, WhatsAppChatSender, WhatsAppPairing {
         }
 
         try {
+          // ponytail: prefer the already-decrypted blob the msg.downloadMedia()
+          // above leaves on mediaData.mediaBlob. Reading it
+          // avoids downloadAndMaybeDecrypt, whose strict mimetype check rejects
+          // images served as application/octet-stream (old/migrated chats) with
+          // "Unexpected mimetype". Fall back to the strict path only if no blob.
+          const blob = msg.mediaData?.mediaBlob;
+          if (blob) {
+            const data = await (window as any).WWebJS.arrayBufferToBase64Async(
+              await blob.arrayBuffer(),
+            );
+            return {
+              data,
+              mimetype: blob.type || (msg.type === "image" ? "image/jpeg" : msg.mimetype),
+              filename: msg.filename,
+            };
+          }
+
           const mockQpl = {
             addAnnotations: function () {
               return this;
