@@ -24,6 +24,7 @@ export type ForwardMessageToEmailOptions = {
   from: string;
   to: string;
   threadStore: WhatsAppEmailThreadStore;
+  maxAttachmentSizeBytes?: number;
 };
 
 export class ForwardMessageToEmail {
@@ -34,11 +35,26 @@ export class ForwardMessageToEmail {
   ) {}
 
   async handle(message: InboundMessage): Promise<void> {
-    const attachments = this.attachmentsFor(message);
+    const allAttachments = this.attachmentsFor(message);
 
-    if (!message.text.trim() && attachments.length === 0) {
+    if (!message.text.trim() && allAttachments.length === 0) {
       return;
     }
+
+    const sizeLimit = this.options.maxAttachmentSizeBytes;
+    const accepted: MediaAttachment[] = [];
+    const oversized: MediaAttachment[] = [];
+
+    for (const attachment of allAttachments) {
+      if (sizeLimit != null && attachment.content.length > sizeLimit) {
+        oversized.push(attachment);
+      } else {
+        accepted.push(attachment);
+      }
+    }
+
+    const capped = accepted.slice(0, maxAttachments);
+    const omittedByCount = Math.max(0, accepted.length - maxAttachments);
 
     const sender = message.from.displayName ?? message.from.id;
     const contactLabel = this.senderLabelFor(message);
@@ -55,11 +71,11 @@ export class ForwardMessageToEmail {
       from: this.options.from,
       to: this.options.to,
       subject: thread.subject,
-      text: this.bodyFor(message),
+      text: this.bodyFor(message, oversized, omittedByCount),
       messageId: forwardedMessageId(thread, message.id),
       inReplyTo: thread.rootMessageId,
       references: [thread.rootMessageId],
-      ...(attachments.length > 0 ? { attachments: attachments.slice(0, maxAttachments) } : {}),
+      ...(capped.length > 0 ? { attachments: capped } : {}),
     });
 
     this.logger.info(
@@ -67,9 +83,11 @@ export class ForwardMessageToEmail {
     );
   }
 
-  private bodyFor(message: InboundMessage): string {
-    const attachmentCount = this.attachmentsFor(message).length;
-    const omittedAttachmentCount = Math.max(0, attachmentCount - maxAttachments);
+  private bodyFor(
+    message: InboundMessage,
+    oversized: MediaAttachment[],
+    omittedByCount: number,
+  ): string {
     const lines = [
       message.text,
       "",
@@ -78,10 +96,20 @@ export class ForwardMessageToEmail {
       replyMarker,
     ];
 
-    if (omittedAttachmentCount > 0) {
+    for (const attachment of oversized) {
+      const sizeMb = (attachment.content.length / (1024 * 1024)).toFixed(1);
+      const limitMb = (this.options.maxAttachmentSizeBytes! / (1024 * 1024)).toFixed(1);
+      const name = attachment.filename ?? "unnamed";
       lines.push(
         "",
-        `Note: ${omittedAttachmentCount} additional attachment(s) were not forwarded because the per-message limit is ${maxAttachments}.`,
+        `Attachment not forwarded: ${name} (${sizeMb} MB) exceeds the ${limitMb} MB size limit.`,
+      );
+    }
+
+    if (omittedByCount > 0) {
+      lines.push(
+        "",
+        `Note: ${omittedByCount} additional attachment(s) were not forwarded because the per-message limit is ${maxAttachments}.`,
       );
     }
 
