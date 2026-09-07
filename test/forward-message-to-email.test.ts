@@ -273,6 +273,98 @@ describe("ForwardMessageToEmail", () => {
     expect(emailSender.sent[0]?.attachments).toEqual(attachments);
   });
 
+  it("skips oversized attachments and adds a note to the body", async () => {
+    const sizeLimit = 1024;
+    const small = {
+      filename: "small.jpg",
+      contentType: "image/jpeg",
+      content: Buffer.alloc(512),
+    };
+    const large = {
+      filename: "big-video.mp4",
+      contentType: "video/mp4",
+      content: Buffer.alloc(sizeLimit + 1),
+    };
+    const emailSender = new FakeEmailSender();
+    const forwarder = new ForwardMessageToEmail(emailSender, {
+      from: "bot@example.com",
+      to: "me@example.com",
+      threadStore: new FakeThreadStore(),
+      maxAttachmentSizeBytes: sizeLimit,
+    });
+
+    await forwarder.handle({
+      id: "message-1",
+      channel: "whatsapp",
+      from: { id: "12025550108@c.us", displayName: "A Friend" },
+      text: "Check this out",
+      receivedAt: new Date("2026-06-21T08:00:00.000Z"),
+      attachments: [small, large],
+    });
+
+    const sent = emailSender.sent[0]!;
+    expect(sent.attachments).toEqual([small]);
+    expect(sent.text).toContain(
+      "Attachment not forwarded: big-video.mp4 (0.0 MB) exceeds the 0.0 MB size limit.",
+    );
+  });
+
+  it("passes attachments under the size limit unchanged", async () => {
+    const attachment = {
+      filename: "photo.jpg",
+      contentType: "image/jpeg",
+      content: Buffer.alloc(500),
+    };
+    const emailSender = new FakeEmailSender();
+    const forwarder = new ForwardMessageToEmail(emailSender, {
+      from: "bot@example.com",
+      to: "me@example.com",
+      threadStore: new FakeThreadStore(),
+      maxAttachmentSizeBytes: 1024,
+    });
+
+    await forwarder.handle({
+      id: "message-1",
+      channel: "whatsapp",
+      from: { id: "12025550108@c.us", displayName: "A Friend" },
+      text: "Here",
+      receivedAt: new Date("2026-06-21T08:00:00.000Z"),
+      attachments: [attachment],
+    });
+
+    const sent = emailSender.sent[0]!;
+    expect(sent.attachments).toEqual([attachment]);
+    expect(sent.text).not.toContain("Attachment not forwarded");
+  });
+
+  it("skips multiple oversized attachments while keeping small ones", async () => {
+    const sizeLimit = 1024;
+    const small = { filename: "ok.jpg", contentType: "image/jpeg", content: Buffer.alloc(100) };
+    const big1 = { filename: "huge1.mp4", contentType: "video/mp4", content: Buffer.alloc(2000) };
+    const big2 = { filename: "huge2.mp4", contentType: "video/mp4", content: Buffer.alloc(3000) };
+    const emailSender = new FakeEmailSender();
+    const forwarder = new ForwardMessageToEmail(emailSender, {
+      from: "bot@example.com",
+      to: "me@example.com",
+      threadStore: new FakeThreadStore(),
+      maxAttachmentSizeBytes: sizeLimit,
+    });
+
+    await forwarder.handle({
+      id: "message-1",
+      channel: "whatsapp",
+      from: { id: "12025550108@c.us", displayName: "A Friend" },
+      text: "Files",
+      receivedAt: new Date("2026-06-21T08:00:00.000Z"),
+      attachments: [small, big1, big2],
+    });
+
+    const sent = emailSender.sent[0]!;
+    expect(sent.attachments).toEqual([small]);
+    expect(sent.text).toContain("huge1.mp4");
+    expect(sent.text).toContain("huge2.mp4");
+  });
+
   it("does not send an email for an empty message", async () => {
     const emailSender = new FakeEmailSender();
     const logger = new FakeLogger();
