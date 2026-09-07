@@ -657,7 +657,7 @@ implements InboundChannel, WhatsAppSender, WhatsAppChatSender, WhatsAppPairing {
             );
             return {
               data,
-              mimetype: msg.mimetype,
+              mimetype: blob.type || (msg.type === "image" ? "image/jpeg" : msg.mimetype),
               filename: msg.filename,
             };
           }
