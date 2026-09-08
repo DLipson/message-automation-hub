@@ -431,7 +431,7 @@ implements InboundChannel, WhatsAppSender, WhatsAppChatSender, WhatsAppPairing {
       throw error;
     }
 
-    return { delivery };
+    return { chatId, delivery };
   }
 
   private async ensureChatForPhoneNumber(phoneNumber: string): Promise<string> {

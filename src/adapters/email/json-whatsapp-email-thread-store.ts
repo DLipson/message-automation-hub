@@ -48,6 +48,39 @@ export class JsonWhatsAppEmailThreadStore implements WhatsAppEmailThreadStore {
     });
   }
 
+  async getActive(chatId: string): Promise<WhatsAppEmailThread | undefined> {
+    const threads = await this.readThreads();
+    // ponytail: backward compat — threads without `active` field are treated as active
+    return threads.find(t => t.chatId === chatId && t.active !== false);
+  }
+
+  async createNew(
+    chatId: string,
+    contactLabel: string,
+  ): Promise<WhatsAppEmailThread> {
+    return await this.file.enqueue(async () => {
+      const threads = await this.readThreads();
+      // Demote any existing active thread for this chatId
+      const updated = threads.map(t =>
+        t.chatId === chatId && t.active !== false
+          ? { ...t, active: false as const }
+          : t,
+      );
+
+      const token = randomBytes(6).toString("base64url");
+      const thread: WhatsAppEmailThread = {
+        token,
+        chatId,
+        subject: `WhatsApp message from ${cleanSubject(contactLabel)} [wa:${token}]`,
+        rootMessageId: `<wa.${token}@${this.messageIdDomain}>`,
+        active: true,
+      };
+
+      await this.file.save([...updated, thread]);
+      return thread;
+    });
+  }
+
   async findByToken(token: string): Promise<WhatsAppEmailThread | null> {
     return (await this.readThreads()).find(thread => thread.token === token) ?? null;
   }

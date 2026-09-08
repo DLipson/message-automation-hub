@@ -39,6 +39,15 @@ class CapturingThreadStore implements WhatsAppEmailThreadStore {
     return this.thread;
   }
 
+  async getActive(): Promise<WhatsAppEmailThread | undefined> {
+    // ponytail: return undefined so the test can verify getOrCreate fallback path
+    return undefined;
+  }
+
+  async createNew(): Promise<WhatsAppEmailThread> {
+    return this.thread;
+  }
+
   async findByToken(): Promise<WhatsAppEmailThread | null> {
     return this.thread;
   }
@@ -57,6 +66,14 @@ class FakeThreadStore implements WhatsAppEmailThreadStore {
   };
 
   async getOrCreate(): Promise<WhatsAppEmailThread> {
+    return this.thread;
+  }
+
+  async getActive(): Promise<WhatsAppEmailThread | undefined> {
+    return this.thread;
+  }
+
+  async createNew(): Promise<WhatsAppEmailThread> {
     return this.thread;
   }
 
@@ -179,6 +196,71 @@ describe("ForwardMessageToEmail", () => {
     expect(emailSender.sent[0]?.subject).toBe(
       "WhatsApp message from Alice - 127513921597547@lid [wa:lid123]",
     );
+  });
+
+  it("routes inbound messages to the active thread", async () => {
+    const activeThread: WhatsAppEmailThread = {
+      token: "active1",
+      chatId: "12025550108@c.us",
+      subject: "WhatsApp message from A Friend - 12025550108 [wa:active1]",
+      rootMessageId: "<wa.active1@message-automation-hub.local>",
+      active: true,
+    };
+    const threadStore: WhatsAppEmailThreadStore = {
+      async getOrCreate() { throw new Error("should not be called"); },
+      async getActive() { return activeThread; },
+      async createNew() { return activeThread; },
+      async findByToken() { return activeThread; },
+      async findByMessageId() { return activeThread; },
+    };
+    const emailSender = new FakeEmailSender();
+    const forwarder = new ForwardMessageToEmail(emailSender, {
+      from: "bot@example.com",
+      to: "me@example.com",
+      threadStore,
+    });
+
+    await forwarder.handle({
+      id: "message-1",
+      channel: "whatsapp",
+      from: { id: "12025550108@c.us", displayName: "A Friend" },
+      text: "Hello",
+      receivedAt: new Date("2026-06-21T08:00:00.000Z"),
+    });
+
+    expect(emailSender.sent[0]?.subject).toBe(activeThread.subject);
+  });
+
+  it("falls back to getOrCreate when getActive returns undefined", async () => {
+    const fallbackThread: WhatsAppEmailThread = {
+      token: "fallback1",
+      chatId: "12025550108@c.us",
+      subject: "WhatsApp message from A Friend - 12025550108 [wa:fallback1]",
+      rootMessageId: "<wa.fallback1@message-automation-hub.local>",
+    };
+    const threadStore: WhatsAppEmailThreadStore = {
+      async getOrCreate() { return fallbackThread; },
+      async getActive() { return undefined; },
+      async createNew() { return fallbackThread; },
+      async findByToken() { return fallbackThread; },
+      async findByMessageId() { return fallbackThread; },
+    };
+    const emailSender = new FakeEmailSender();
+    const forwarder = new ForwardMessageToEmail(emailSender, {
+      from: "bot@example.com",
+      to: "me@example.com",
+      threadStore,
+    });
+
+    await forwarder.handle({
+      id: "message-1",
+      channel: "whatsapp",
+      from: { id: "12025550108@c.us", displayName: "A Friend" },
+      text: "Hello",
+      receivedAt: new Date("2026-06-21T08:00:00.000Z"),
+    });
+
+    expect(emailSender.sent[0]?.subject).toBe(fallbackThread.subject);
   });
 
   it("forwards up to five WhatsApp attachments", async () => {

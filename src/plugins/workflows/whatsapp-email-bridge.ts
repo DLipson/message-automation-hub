@@ -41,6 +41,7 @@ export function createWhatsAppEmailBridgePlugin(
         ctx.require(capabilities.whatsappSender),
         {
           subjectPrefix: config.emailToWhatsapp.subjectPrefix,
+          threadStore,
           failureNotification: {
             sender: ctx.require(capabilities.emailSender),
             from: config.email.from,

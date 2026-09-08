@@ -19,6 +19,7 @@ export type WhatsAppChatMessage = {
 export type DeliveryStatus = 'sent' | 'delivered' | 'error';
 
 export interface SentMessage {
+  chatId: string;
   delivery: Promise<DeliveryStatus>;
 }
 

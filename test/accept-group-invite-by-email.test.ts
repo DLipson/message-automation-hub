@@ -81,6 +81,14 @@ class FakeThreadStore implements WhatsAppEmailThreadStore {
     return this.thread;
   }
 
+  async getActive(): Promise<WhatsAppEmailThread | undefined> {
+    return this.thread;
+  }
+
+  async createNew(): Promise<WhatsAppEmailThread> {
+    return this.thread;
+  }
+
   async findByToken(token: string): Promise<WhatsAppEmailThread | null> {
     return token === this.thread.token ? this.thread : null;
   }

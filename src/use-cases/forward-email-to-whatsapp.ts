@@ -10,6 +10,7 @@ import type {
   EmailAutomationHandler,
 } from "./process-email-automations.js";
 import { parseSubjectCommand } from "./process-email-automations.js";
+import type { WhatsAppEmailThreadStore } from "./whatsapp-email-thread-store.js";
 
 const threeMinutesMs = 3 * 60 * 1000;
 const fiveMinutesMs = 5 * 60 * 1000;
@@ -28,6 +29,7 @@ export type ForwardEmailToWhatsAppOptions = {
     from: string;
     to: string;
   };
+  threadStore?: WhatsAppEmailThreadStore;
 };
 
 type EmailCommand = {
@@ -74,6 +76,8 @@ export class ForwardEmailToWhatsApp implements EmailAutomationHandler {
       if (command.image) {
         batch.sentWhatsAppImage = true;
       }
+
+      await this.rotateThread(sentMsg.chatId, command.phoneNumber);
 
       sentMsg.delivery.then(async status => {
         if (status === "delivered") {
@@ -219,6 +223,22 @@ export class ForwardEmailToWhatsApp implements EmailAutomationHandler {
     } catch (error) {
       this.logger.info(
         `Could not send extra-image notice for email ${email.id}: ${
+          error instanceof Error ? error.message : "Unknown error"
+        }`,
+      );
+    }
+  }
+
+  private async rotateThread(
+    chatId: string,
+    phoneNumber: string,
+  ): Promise<void> {
+    if (!this.options.threadStore) return;
+    try {
+      await this.options.threadStore.createNew(chatId, phoneNumber);
+    } catch (error) {
+      this.logger.info(
+        `Could not rotate thread for ${phoneNumber}: ${
           error instanceof Error ? error.message : "Unknown error"
         }`,
       );

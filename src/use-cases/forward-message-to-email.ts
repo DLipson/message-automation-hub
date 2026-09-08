@@ -67,10 +67,8 @@ export class ForwardMessageToEmail {
 
     const sender = message.from.displayName ?? message.from.id;
     const contactLabel = this.senderLabelFor(message);
-    const thread = await this.options.threadStore.getOrCreate(
-      message.from.id,
-      contactLabel,
-    );
+    const thread = await this.options.threadStore.getActive(message.from.id)
+      ?? await this.options.threadStore.getOrCreate(message.from.id, contactLabel);
 
     this.logger.info(
       `Received WhatsApp message from ${sender}; forwarding to ${this.options.to}.`,

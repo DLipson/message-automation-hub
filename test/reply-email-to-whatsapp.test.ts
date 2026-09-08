@@ -27,7 +27,7 @@ class FakeWhatsApp implements WhatsAppChatSender {
     }
 
     this.sent.push(message);
-    return { delivery: new Promise(() => {}) };
+    return { chatId: message.chatId, delivery: new Promise(() => {}) };
   }
 
   async acceptInvite(_inviteCode: string): Promise<string> {
@@ -59,6 +59,14 @@ class FakeThreadStore implements WhatsAppEmailThreadStore {
   constructor(private readonly thread: WhatsAppEmailThread) {}
 
   async getOrCreate(): Promise<WhatsAppEmailThread> {
+    return this.thread;
+  }
+
+  async getActive(): Promise<WhatsAppEmailThread | undefined> {
+    return this.thread;
+  }
+
+  async createNew(): Promise<WhatsAppEmailThread> {
     return this.thread;
   }
 
