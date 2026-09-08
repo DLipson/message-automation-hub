@@ -365,6 +365,95 @@ describe("ForwardMessageToEmail", () => {
     expect(sent.text).toContain("huge2.mp4");
   });
 
+  it("prefixes body with author name in group messages", async () => {
+    const emailSender = new FakeEmailSender();
+    const forwarder = new ForwardMessageToEmail(emailSender, {
+      from: "bot@example.com",
+      to: "me@example.com",
+      threadStore: new FakeThreadStore(),
+    });
+
+    await forwarder.handle({
+      id: "message-1",
+      channel: "whatsapp",
+      from: { id: "222@g.us", displayName: "Family Chat" },
+      text: "Hello everyone",
+      receivedAt: new Date("2026-06-21T08:00:00.000Z"),
+      author: "Alice",
+    });
+
+    const body = emailSender.sent[0]!.text!;
+    expect(body).toContain("[Alice]: Hello everyone");
+  });
+
+  it("renders quoted message as blockquote above the reply", async () => {
+    const emailSender = new FakeEmailSender();
+    const forwarder = new ForwardMessageToEmail(emailSender, {
+      from: "bot@example.com",
+      to: "me@example.com",
+      threadStore: new FakeThreadStore(),
+    });
+
+    await forwarder.handle({
+      id: "message-1",
+      channel: "whatsapp",
+      from: { id: "12025550108@c.us", displayName: "A Friend" },
+      text: "I agree",
+      receivedAt: new Date("2026-06-21T08:00:00.000Z"),
+      quotedMessage: { text: "Let's meet at 5", sender: "Charlie" },
+    });
+
+    const body = emailSender.sent[0]!.text!;
+    expect(body).toContain("> [Charlie]: Let's meet at 5");
+    expect(body.indexOf("> [Charlie]")).toBeLessThan(body.indexOf("I agree"));
+  });
+
+  it("renders quoted message without sender when sender is absent", async () => {
+    const emailSender = new FakeEmailSender();
+    const forwarder = new ForwardMessageToEmail(emailSender, {
+      from: "bot@example.com",
+      to: "me@example.com",
+      threadStore: new FakeThreadStore(),
+    });
+
+    await forwarder.handle({
+      id: "message-1",
+      channel: "whatsapp",
+      from: { id: "12025550108@c.us" },
+      text: "ok",
+      receivedAt: new Date("2026-06-21T08:00:00.000Z"),
+      quotedMessage: { text: "original text" },
+    });
+
+    const body = emailSender.sent[0]!.text!;
+    expect(body).toContain("> original text");
+    expect(body).not.toContain("> [");
+  });
+
+  it("renders both author and quoted message together", async () => {
+    const emailSender = new FakeEmailSender();
+    const forwarder = new ForwardMessageToEmail(emailSender, {
+      from: "bot@example.com",
+      to: "me@example.com",
+      threadStore: new FakeThreadStore(),
+    });
+
+    await forwarder.handle({
+      id: "message-1",
+      channel: "whatsapp",
+      from: { id: "222@g.us", displayName: "Group" },
+      text: "sounds good",
+      receivedAt: new Date("2026-06-21T08:00:00.000Z"),
+      author: "Alice",
+      quotedMessage: { text: "Let's go", sender: "Bob" },
+    });
+
+    const body = emailSender.sent[0]!.text!;
+    expect(body).toContain("> [Bob]: Let's go");
+    expect(body).toContain("[Alice]: sounds good");
+    expect(body.indexOf("> [Bob]")).toBeLessThan(body.indexOf("[Alice]"));
+  });
+
   it("does not send an email for an empty message", async () => {
     const emailSender = new FakeEmailSender();
     const logger = new FakeLogger();
