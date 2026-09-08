@@ -2,7 +2,7 @@ import type { InboundEmail } from "../domain/email.js";
 import type { MediaAttachment } from "../domain/media.js";
 import type { ContactRef, InboundMessage } from "../domain/message.js";
 import type { AppLogger } from "../ports/app-logger.js";
-import type { EmailMessage } from "../ports/email-sender.js";
+import type { EmailMessage, EmailSender } from "../ports/email-sender.js";
 import type {
   WhatsAppSender, WhatsAppChatSender,
   DeliveryStatus, WhatsAppGroupInviteV4,
@@ -36,10 +36,11 @@ export type {
 export type { InboundEmail, MediaAttachment };
 export type { ContactRef, InboundMessage };
 export type { AppLogger };
-export type { EmailMessage };
+export type { EmailInbox, EmailLabeler, EmailStatusMarker } from "../ports/email-inbox.js";
+export type { EmailMessage, EmailSender };
 export type {
   WhatsAppSender, WhatsAppChatSender,
   DeliveryStatus, WhatsAppGroupInviteV4,
   SentMessage, WhatsAppChatMessage, WhatsAppDirectImage, WhatsAppDirectMessage,
 };
-export type { EmailAutomationBatch } from "../use-cases/process-email-automations.js";
+export type { EmailAutomationBatch, EmailAutomationHandler } from "../use-cases/process-email-automations.js";
