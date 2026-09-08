@@ -115,7 +115,7 @@ describe("WhatsAppWebChannel", () => {
     const channel = new WhatsAppWebChannel({ phoneNumber: "12025550108" });
 
     await channel.start();
-    whatsappMock.clients[0]?.handlers.get("disconnected")?.("LOGOUT");
+    await whatsappMock.clients[0]?.handlers.get("disconnected")?.("LOGOUT");
 
     expect(exit).toHaveBeenCalledWith(1);
     expect(log.mock.calls.flat().join("\n")).toContain("Client disconnected: LOGOUT");
@@ -211,12 +211,16 @@ describe("WhatsAppWebChannel", () => {
     });
 
     // A fresh link resets the guard, so the next unlinked send alerts again.
+    // The disconnect itself also alerts once.
     client?.handlers.get("ready")?.();
-    client?.handlers.get("disconnected")?.("LOGOUT");
+    await client?.handlers.get("disconnected")?.("LOGOUT");
+    expect(notifier.sent[1]).toMatchObject({
+      subject: "Message Hub: WhatsApp session disconnected",
+    });
     await expect(
       channel.sendChatMessage({ chatId: "1@c.us", text: "third" }),
     ).rejects.toThrow("not linked");
-    expect(notifier.sent).toHaveLength(2);
+    expect(notifier.sent).toHaveLength(3);
   });
 
   it("catches async inbound message handler failures", async () => {
