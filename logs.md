@@ -1,5 +1,13 @@
 # Logs
 
+## 2026-09-08 - External plugins repo drifted from the hub's plugin API
+
+- **Symptom** - `message-automation-plugins` (DLipson/message-automation-plugins, split off Aug 2) typechecked locally but a fresh install would break: it consumed the hub through a floating git dep (`github:DLipson/message-automation-hub`, no ref) and its installed clone was frozen at the Aug 2 state while hub master's plugin contract moved on.
+- **Root cause** - Two compounding: (1) the Aug 16 API-barrel trim (`5d670a8`) stopped exporting `EmailInbox`/`EmailLabeler`/`EmailStatusMarker`/`EmailSender`/`EmailAutomationHandler`, and the package `exports` map blocks deep imports, so external plugins could not name those types at all; (2) `HubPlugin` shape changed (`{name, onLoad}` → `{id, requires?, register}`) and `ctx.config`/`ctx.formatError`/`ctx.parseSubjectCommand` were removed from `PluginContext` — the plugins repo still used the old shape (config read from `ctx.config`).
+- **Fix** - Hub: re-export the five port/handler types from the API barrel (`e675258`). Plugins repo: workflows became `createXPlugin(config): HubPlugin` factories (config via closure, matching the in-core bridge); local `formatError`/`parseSubjectCommand` duplicates deleted in favor of the barrel; the fake context was trimmed to the real `PluginContext`; `vitest.config.ts` aliases the barrel to the hub's source `src/api/index.ts` (npm 10 does not run the git dep's `prepare`, so the installed dep has no `dist` — types and runtime values both resolve from source); dep pinned to `#e675258`.
+- **Verification** - Hub typecheck+build clean. Plugins repo: `tsc --noEmit` clean, 19/19 tests pass. Fresh `npm install` resolves the pinned SHA — note npm honors the lockfile over package.json, so the pin required an explicit `npm install @message-automation/core@github:DLipson/message-automation-hub#e675258` to update the lockfile's `resolved` ref.
+- **Open** - Hub still hardcodes its plugin list in `src/index.ts`; nothing loads the external plugins package yet. Wiring plugin discovery (from `node_modules`/config) is a separate feature, deliberately deferred.
+
 ## 2026-09-06 - Media download fails on images served as application/octet-stream
 
 - **Symptom** - Error email: `Message Automation Hub could not download media from a WhatsApp message. Reason: library download failed (t: t ...); direct download: downloadAndMaybeDecrypt failed: Unexpected mimetype application/octet-stream for media type image`.
