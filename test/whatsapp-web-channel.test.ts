@@ -10,6 +10,7 @@ const whatsappMock = vi.hoisted(() => {
     readonly getNumberId = vi.fn(async () => ({ _serialized: "12025550108@c.us" }));
     readonly sendMessage = vi.fn(async () => ({ id: "sent" }));
     readonly getChats = vi.fn(async () => []);
+    readonly getChatById = vi.fn(async (_id: string): Promise<{ name?: string }> => ({}));
     pupPage?: {
       evaluate: (...args: unknown[]) => Promise<unknown>;
     };
@@ -163,6 +164,26 @@ describe("WhatsAppWebChannel", () => {
       channel.sendChatMessage({ chatId: "1@c.us", text: "hi" }),
     ).resolves.toBeDefined();
     expect(client?.sendMessage).toHaveBeenCalledWith("1@c.us", "hi");
+  });
+
+  it("returns @c.us chatId on sendMessage even when WA resolves to @lid", async () => {
+    const channel = new WhatsAppWebChannel({ phoneNumber: "12025550108" });
+
+    await channel.start();
+    const client = whatsappMock.clients[0]!;
+    client.handlers.get("ready")?.();
+    // getNumberId returns the @lid format
+    client.getNumberId.mockResolvedValue({ _serialized: "127513921597547@lid" });
+    client.pupPage = {
+      evaluate: async () => "127513921597547@lid",
+    };
+
+    const result = await channel.sendMessage({
+      phoneNumber: "12025550108",
+      text: "hi",
+    });
+
+    expect(result.chatId).toBe("12025550108@c.us");
   });
 
   it("times out a hung chat lookup instead of hanging the send forever", async () => {
@@ -705,6 +726,180 @@ describe("WhatsAppWebChannel", () => {
     });
     expect(log.mock.calls.flat().join("\n")).toContain("type: groups_v4_invite");
   });
+
+  it("uses group name as displayName for group messages", async () => {
+    vi.spyOn(console, "log").mockImplementation(() => {});
+    const received: unknown[] = [];
+    const channel = new WhatsAppWebChannel({
+      phoneNumber: "12025550108",
+      forwardGroups: { enabled: true },
+    });
+    channel.onMessage(async message => {
+      received.push(message);
+    });
+
+    await channel.start();
+    const client = whatsappMock.clients[0]!;
+    client.getChatById.mockResolvedValue({ name: "Family Chat" });
+
+    await emitMessage({
+      from: "222@g.us",
+      body: "hello group",
+      _data: { notifyName: "Alice" },
+    });
+
+    expect(received).toHaveLength(1);
+    expect(received[0]).toMatchObject({
+      from: { id: "222@g.us", displayName: "Family Chat" },
+      author: "Alice",
+    });
+  });
+
+  it("falls back to notifyName when group name lookup fails", async () => {
+    vi.spyOn(console, "log").mockImplementation(() => {});
+    const received: unknown[] = [];
+    const channel = new WhatsAppWebChannel({
+      phoneNumber: "12025550108",
+      forwardGroups: { enabled: true },
+    });
+    channel.onMessage(async message => {
+      received.push(message);
+    });
+
+    await channel.start();
+    const client = whatsappMock.clients[0]!;
+    client.getChatById.mockRejectedValue(new Error("page crashed"));
+
+    await emitMessage({
+      from: "222@g.us",
+      body: "hello",
+      _data: { notifyName: "Bob" },
+    });
+
+    expect(received[0]).toMatchObject({
+      from: { id: "222@g.us", displayName: "Bob" },
+      author: "Bob",
+    });
+  });
+
+  it("falls back to raw author when notifyName is missing in group", async () => {
+    vi.spyOn(console, "log").mockImplementation(() => {});
+    const received: unknown[] = [];
+    const channel = new WhatsAppWebChannel({
+      phoneNumber: "12025550108",
+      forwardGroups: { enabled: true },
+    });
+    channel.onMessage(async message => {
+      received.push(message);
+    });
+
+    await channel.start();
+    const client = whatsappMock.clients[0]!;
+    client.getChatById.mockResolvedValue({ name: "Work Group" });
+
+    await emitMessage({
+      from: "222@g.us",
+      author: "555@c.us",
+      body: "hello",
+    });
+
+    expect(received[0]).toMatchObject({
+      author: "555@c.us",
+    });
+  });
+
+  it("caches group names across messages", async () => {
+    vi.spyOn(console, "log").mockImplementation(() => {});
+    const received: unknown[] = [];
+    const channel = new WhatsAppWebChannel({
+      phoneNumber: "12025550108",
+      forwardGroups: { enabled: true },
+    });
+    channel.onMessage(async message => {
+      received.push(message);
+    });
+
+    await channel.start();
+    const client = whatsappMock.clients[0]!;
+    client.getChatById.mockResolvedValue({ name: "Cached Group" });
+
+    await emitMessage({ from: "222@g.us", body: "first", _data: { notifyName: "A" } });
+    await emitMessage({ from: "222@g.us", body: "second", _data: { notifyName: "B" } });
+
+    expect(client.getChatById).toHaveBeenCalledTimes(1);
+    expect(received[1]).toMatchObject({
+      from: { displayName: "Cached Group" },
+    });
+  });
+
+  it("extracts quoted message text and sender", async () => {
+    vi.spyOn(console, "log").mockImplementation(() => {});
+    const received: unknown[] = [];
+    const channel = new WhatsAppWebChannel({ phoneNumber: "12025550108" });
+    channel.onMessage(async message => {
+      received.push(message);
+    });
+
+    await channel.start();
+    await emitMessage({
+      from: "12025550108@c.us",
+      body: "I agree",
+      hasQuotedMsg: true,
+      getQuotedMessage: async () => ({
+        body: "Let's meet at 5",
+        _data: { notifyName: "Charlie" },
+      }),
+    });
+
+    expect(received[0]).toMatchObject({
+      quotedMessage: { text: "Let's meet at 5", sender: "Charlie" },
+    });
+  });
+
+  it("handles quoted message fetch failure gracefully", async () => {
+    const log = vi.spyOn(console, "log").mockImplementation(() => {});
+    const received: unknown[] = [];
+    const channel = new WhatsAppWebChannel({ phoneNumber: "12025550108" });
+    channel.onMessage(async message => {
+      received.push(message);
+    });
+
+    await channel.start();
+    await emitMessage({
+      from: "12025550108@c.us",
+      body: "reply",
+      hasQuotedMsg: true,
+      getQuotedMessage: async () => {
+        throw new Error("quote fetch failed");
+      },
+    });
+
+    expect(received[0]).toMatchObject({ text: "reply" });
+    expect(Object.prototype.hasOwnProperty.call(received[0], "quotedMessage")).toBe(false);
+    expect(log.mock.calls.flat().join("\n")).toContain("Failed to fetch quoted message");
+  });
+
+  it("skips quoted message when body is empty (media-only quote)", async () => {
+    vi.spyOn(console, "log").mockImplementation(() => {});
+    const received: unknown[] = [];
+    const channel = new WhatsAppWebChannel({ phoneNumber: "12025550108" });
+    channel.onMessage(async message => {
+      received.push(message);
+    });
+
+    await channel.start();
+    await emitMessage({
+      from: "12025550108@c.us",
+      body: "reply",
+      hasQuotedMsg: true,
+      getQuotedMessage: async () => ({
+        body: undefined,
+        _data: { notifyName: "Dave" },
+      }),
+    });
+
+    expect(Object.prototype.hasOwnProperty.call(received[0], "quotedMessage")).toBe(false);
+  });
 });
 
 async function emitMessage(overrides: {
@@ -712,12 +907,15 @@ async function emitMessage(overrides: {
   author?: string;
   body: string;
   hasMedia?: boolean;
+  hasQuotedMsg?: boolean;
   id?: Record<string, unknown>;
+  _data?: { notifyName?: string };
   downloadMedia?: () => Promise<{
     mimetype: string;
     data: string;
     filename?: string | null;
   } | undefined>;
+  getQuotedMessage?: () => Promise<unknown>;
 }): Promise<void> {
   await whatsappMock.clients[0]?.handlers.get("message")?.({
     id: overrides.id ?? { _serialized: "message-1" },

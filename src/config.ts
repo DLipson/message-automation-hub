@@ -18,6 +18,7 @@ export const appDefaults = {
   botControlPort: 8788,
   whatsappSendTimeoutMs: 90_000,
   emailMessageIdDomain: "message-automation-hub.local",
+  maxAttachmentSizeBytes: 10 * 1024 * 1024,
 } as const;
 
 export const SMTP_PASSWORD_SECRET: SecretRef = {
@@ -48,6 +49,7 @@ export type AppConfig = {
     from: string;
     to: string;
     messageIdDomain: string;
+    maxAttachmentSizeBytes: number;
   };
   imap: {
     host: string;
@@ -138,6 +140,9 @@ export function loadConfig(
       messageIdDomain:
         optionalEnv(env, "EMAIL_MESSAGE_ID_DOMAIN") ??
         appDefaults.emailMessageIdDomain,
+      maxAttachmentSizeBytes:
+        readOptionalMegabytesAsBytes(env, "MAX_ATTACHMENT_SIZE_MB") ??
+        appDefaults.maxAttachmentSizeBytes,
     },
     imap: {
       host: optionalEnv(env, "IMAP_HOST") ?? appDefaults.imapHost,
@@ -272,6 +277,25 @@ function readOptionalBoolean(
   }
 
   throw new Error(`${key} must be true or false`);
+}
+
+function readOptionalMegabytesAsBytes(
+  env: NodeJS.ProcessEnv,
+  key: string,
+): number | null {
+  const rawValue = optionalEnv(env, key);
+
+  if (!rawValue) {
+    return null;
+  }
+
+  const value = Number(rawValue);
+
+  if (!Number.isFinite(value) || value <= 0) {
+    throw new Error(`${key} must be a positive number`);
+  }
+
+  return Math.round(value * 1024 * 1024);
 }
 
 function readOptionalPhoneNumber(

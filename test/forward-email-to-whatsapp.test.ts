@@ -12,6 +12,10 @@ import type {
 import { FakeEmailInbox } from "./fakes/fake-email-inbox.js";
 import { runWithEmailHandler } from "./helpers/run-with-email-handler.js";
 import { ForwardEmailToWhatsApp } from "../src/use-cases/forward-email-to-whatsapp.js";
+import type {
+  WhatsAppEmailThread,
+  WhatsAppEmailThreadStore,
+} from "../src/use-cases/whatsapp-email-thread-store.js";
 
 class FakeEmailSender implements EmailSender {
   readonly sent: EmailMessage[] = [];
@@ -27,12 +31,12 @@ class FakeWhatsAppSender implements WhatsAppSender {
 
   async sendMessage(message: WhatsAppDirectMessage): Promise<SentMessage> {
     this.sent.push(message);
-    return { delivery: new Promise(resolve => setTimeout(() => resolve("sent"), 0)) };
+    return { chatId: `${message.phoneNumber}@c.us`, delivery: new Promise(resolve => setTimeout(() => resolve("sent"), 0)) };
   }
 
   async sendImage(message: WhatsAppDirectImage): Promise<SentMessage> {
     this.sentImages.push(message);
-    return { delivery: new Promise(resolve => setTimeout(() => resolve("sent"), 0)) };
+    return { chatId: `${message.phoneNumber}@c.us`, delivery: new Promise(resolve => setTimeout(() => resolve("sent"), 0)) };
   }
 }
 
@@ -271,7 +275,7 @@ describe("ForwardEmailToWhatsApp", () => {
         throw new Error("send failed");
       },
       async sendImage(): Promise<SentMessage> {
-        return { delivery: new Promise(() => {}) };
+        return { chatId: "unknown@c.us", delivery: new Promise(() => {}) };
       },
     };
     const forwarder = new ForwardEmailToWhatsApp(inbox, inbox, whatsapp, {
@@ -308,6 +312,114 @@ describe("ForwardEmailToWhatsApp", () => {
         "Error: send failed",
       ].join("\n")),
     });
+  });
+
+  it("rotates the active thread after a successful WA command send", async () => {
+    const created: Array<{ chatId: string; displayName: string }> = [];
+    const threadStore: WhatsAppEmailThreadStore = {
+      async getOrCreate() { return null as any; },
+      async getActive() { return undefined; },
+      async createNew(chatId, displayName) {
+        created.push({ chatId, displayName });
+        return {
+          token: "new",
+          chatId,
+          subject: `WhatsApp message from ${displayName} [wa:new]`,
+          rootMessageId: "<wa.new@message-automation-hub.local>",
+          active: true,
+        };
+      },
+      async findByToken() { return null; },
+      async findByMessageId() { return null; },
+    };
+    const email = emailCommand({
+      subject: "WA: 12025550108",
+      text: "Hello",
+    });
+    const inbox = new FakeEmailInbox([email]);
+    const whatsapp = new FakeWhatsAppSender();
+    const forwarder = new ForwardEmailToWhatsApp(inbox, inbox, whatsapp, {
+      subjectPrefix: "WA:",
+      threadStore,
+    });
+
+    await runWithEmailHandler(inbox, forwarder).processUnread();
+
+    expect(whatsapp.sent).toHaveLength(1);
+    expect(created).toEqual([{
+      chatId: "12025550108@c.us",
+      displayName: "12025550108",
+    }]);
+  });
+
+  it("reuses the contact label from the existing thread when rotating", async () => {
+    const created: Array<{ chatId: string; displayName: string }> = [];
+    const existingThread = {
+      token: "old",
+      chatId: "12025550108@c.us",
+      subject: "WhatsApp message from Alice - 12025550108 [wa:old]",
+      rootMessageId: "<wa.old@message-automation-hub.local>",
+      active: true as const,
+    };
+    const threadStore: WhatsAppEmailThreadStore = {
+      async getOrCreate() { return null as any; },
+      async getActive() { return existingThread; },
+      async createNew(chatId, displayName) {
+        created.push({ chatId, displayName });
+        return { ...existingThread, token: "new", displayName };
+      },
+      async findByToken() { return null; },
+      async findByMessageId() { return null; },
+    };
+    const email = emailCommand({
+      subject: "WA: 12025550108",
+      text: "Hello",
+    });
+    const inbox = new FakeEmailInbox([email]);
+    const whatsapp = new FakeWhatsAppSender();
+    const forwarder = new ForwardEmailToWhatsApp(inbox, inbox, whatsapp, {
+      subjectPrefix: "WA:",
+      threadStore,
+    });
+
+    await runWithEmailHandler(inbox, forwarder).processUnread();
+
+    expect(created).toEqual([{
+      chatId: "12025550108@c.us",
+      displayName: "Alice - 12025550108",
+    }]);
+  });
+
+  it("does not rotate the thread when send fails", async () => {
+    const created: string[] = [];
+    const threadStore: WhatsAppEmailThreadStore = {
+      async getOrCreate() { return null as any; },
+      async getActive() { return undefined; },
+      async createNew(chatId) { created.push(chatId); return null as any; },
+      async findByToken() { return null; },
+      async findByMessageId() { return null; },
+    };
+    const email = emailCommand({
+      subject: "WA: 12025550108",
+      text: "Hello",
+    });
+    const inbox = new FakeEmailInbox([email]);
+    const whatsapp: WhatsAppSender = {
+      async sendMessage(): Promise<SentMessage> {
+        throw new Error("send failed");
+      },
+      async sendImage(): Promise<SentMessage> {
+        return { chatId: "unknown@c.us", delivery: new Promise(() => {}) };
+      },
+    };
+    const forwarder = new ForwardEmailToWhatsApp(inbox, inbox, whatsapp, {
+      subjectPrefix: "WA:",
+      threadStore,
+    });
+
+    await runWithEmailHandler(inbox, forwarder).processUnread();
+
+    expect(created).toEqual([]);
   });
 });
 

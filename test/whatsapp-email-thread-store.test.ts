@@ -63,6 +63,67 @@ describe("JsonWhatsAppEmailThreadStore", () => {
     await expect(store.findByToken(second.token)).resolves.toEqual(second);
   });
 
+  it("returns the active thread for a chatId", async () => {
+    const store = new JsonWhatsAppEmailThreadStore(await tempPath("threads.json"));
+
+    const thread = await store.getOrCreate("111@c.us", "Alice");
+
+    await expect(store.getActive("111@c.us")).resolves.toEqual(thread);
+    await expect(store.getActive("999@c.us")).resolves.toBeUndefined();
+  });
+
+  it("creates a new thread and demotes the previous active one", async () => {
+    const filePath = await tempPath("threads.json");
+    const store = new JsonWhatsAppEmailThreadStore(filePath);
+
+    const first = await store.getOrCreate("111@c.us", "Alice");
+    const second = await store.createNew("111@c.us", "Alice");
+
+    expect(second.token).not.toBe(first.token);
+    expect(second.chatId).toBe("111@c.us");
+    expect(second.active).toBe(true);
+
+    // Active thread is now the second one
+    await expect(store.getActive("111@c.us")).resolves.toEqual(second);
+
+    // Old token is still findable
+    await expect(store.findByToken(first.token)).resolves.toMatchObject({
+      token: first.token,
+      active: false,
+    });
+    await expect(store.findByToken(second.token)).resolves.toEqual(second);
+  });
+
+  it("getOrCreate returns the active thread after rotation (skips demoted)", async () => {
+    const filePath = await tempPath("threads.json");
+    const store = new JsonWhatsAppEmailThreadStore(filePath);
+
+    await store.getOrCreate("111@c.us", "Alice");
+    const rotated = await store.createNew("111@c.us", "Alice");
+
+    // getOrCreate must find the active thread, not the demoted one
+    const found = await store.getOrCreate("111@c.us", "Alice");
+    expect(found.token).toBe(rotated.token);
+  });
+
+  it("treats threads without an active field as active (backward compat)", async () => {
+    const filePath = await tempPath("threads.json");
+    // Write a legacy thread without the active field
+    const { writeFileSync } = await import("node:fs");
+    const legacyThread = {
+      token: "legacy",
+      chatId: "111@c.us",
+      subject: "WhatsApp message from Alice [wa:legacy]",
+      rootMessageId: "<wa.legacy@message-automation-hub.local>",
+    };
+    writeFileSync(filePath, JSON.stringify([legacyThread]));
+
+    const store = new JsonWhatsAppEmailThreadStore(filePath);
+
+    const active = await store.getActive("111@c.us");
+    expect(active).toEqual(legacyThread);
+  });
+
   it("returns null when no stored thread matches", async () => {
     const store = new JsonWhatsAppEmailThreadStore(await tempPath("missing.json"));
 

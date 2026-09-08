@@ -10,6 +10,7 @@ import type {
   EmailAutomationHandler,
 } from "./process-email-automations.js";
 import { parseSubjectCommand } from "./process-email-automations.js";
+import type { WhatsAppEmailThreadStore } from "./whatsapp-email-thread-store.js";
 
 const threeMinutesMs = 3 * 60 * 1000;
 const fiveMinutesMs = 5 * 60 * 1000;
@@ -28,6 +29,7 @@ export type ForwardEmailToWhatsAppOptions = {
     from: string;
     to: string;
   };
+  threadStore?: WhatsAppEmailThreadStore;
 };
 
 type EmailCommand = {
@@ -74,6 +76,8 @@ export class ForwardEmailToWhatsApp implements EmailAutomationHandler {
       if (command.image) {
         batch.sentWhatsAppImage = true;
       }
+
+      await this.rotateThread(sentMsg.chatId, command.phoneNumber);
 
       sentMsg.delivery.then(async status => {
         if (status === "delivered") {
@@ -225,6 +229,26 @@ export class ForwardEmailToWhatsApp implements EmailAutomationHandler {
     }
   }
 
+  private async rotateThread(
+    chatId: string,
+    phoneNumber: string,
+  ): Promise<void> {
+    if (!this.options.threadStore) return;
+    try {
+      // ponytail: reuse the friendly name from the existing thread so the
+      // new subject reads "Alice - 12025550108" instead of bare digits
+      const existing = await this.options.threadStore.getActive(chatId);
+      const label = existing ? contactLabelFromSubject(existing.subject) ?? phoneNumber : phoneNumber;
+      await this.options.threadStore.createNew(chatId, label);
+    } catch (error) {
+      this.logger.info(
+        `Could not rotate thread for ${phoneNumber}: ${
+          error instanceof Error ? error.message : "Unknown error"
+        }`,
+      );
+    }
+  }
+
   private parseCommand(email: InboundEmail): EmailCommand | null {
     const rawPhoneNumber = parseSubjectCommand(
       email.subject,
@@ -279,4 +303,10 @@ function randomDelayMs(): number {
 
 function wait(milliseconds: number): Promise<void> {
   return new Promise(resolve => setTimeout(resolve, milliseconds));
+}
+
+// ponytail: extract the contact label from a thread subject like
+// "WhatsApp message from Alice - 12025550108 [wa:abc]"
+function contactLabelFromSubject(subject: string): string | null {
+  return /^WhatsApp message from (.+?) \[wa:/.exec(subject)?.[1] ?? null;
 }

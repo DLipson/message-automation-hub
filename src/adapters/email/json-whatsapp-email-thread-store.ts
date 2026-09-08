@@ -29,23 +29,54 @@ export class JsonWhatsAppEmailThreadStore implements WhatsAppEmailThreadStore {
   ): Promise<WhatsAppEmailThread> {
     return await this.file.enqueue(async () => {
       const threads = await this.readThreads();
-      const existing = threads.find(thread => thread.chatId === chatId);
+      // ponytail: prefer active thread so a demoted one doesn't shadow it
+      const active = threads.find(t => t.chatId === chatId && t.active !== false);
+      if (active) return active;
 
-      if (existing) {
-        return existing;
-      }
-
-      const token = randomBytes(6).toString("base64url");
-      const thread = {
-        token,
-        chatId,
-        subject: `WhatsApp message from ${cleanSubject(contactLabel)} [wa:${token}]`,
-        rootMessageId: `<wa.${token}@${this.messageIdDomain}>`,
-      };
-
+      const thread = this.buildThread(chatId, contactLabel);
       await this.file.save([...threads, thread]);
       return thread;
     });
+  }
+
+  async getActive(chatId: string): Promise<WhatsAppEmailThread | undefined> {
+    const threads = await this.readThreads();
+    // ponytail: backward compat — threads without `active` field are treated as active
+    return threads.find(t => t.chatId === chatId && t.active !== false);
+  }
+
+  async createNew(
+    chatId: string,
+    contactLabel: string,
+  ): Promise<WhatsAppEmailThread> {
+    return await this.file.enqueue(async () => {
+      const threads = await this.readThreads();
+      // Demote any existing active thread for this chatId
+      const updated = threads.map(t =>
+        t.chatId === chatId && t.active !== false
+          ? { ...t, active: false as const }
+          : t,
+      );
+
+      const thread = this.buildThread(chatId, contactLabel, true);
+      await this.file.save([...updated, thread]);
+      return thread;
+    });
+  }
+
+  private buildThread(
+    chatId: string,
+    contactLabel: string,
+    active?: boolean,
+  ): WhatsAppEmailThread {
+    const token = randomBytes(6).toString("base64url");
+    return {
+      token,
+      chatId,
+      subject: `WhatsApp message from ${cleanSubject(contactLabel)} [wa:${token}]`,
+      rootMessageId: `<wa.${token}@${this.messageIdDomain}>`,
+      ...(active != null ? { active } : {}),
+    };
   }
 
   async findByToken(token: string): Promise<WhatsAppEmailThread | null> {
