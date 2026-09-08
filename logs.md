@@ -17,6 +17,15 @@
 - **Verification** - `tsc --noEmit` clean; all 257 tests pass. Blob path not exercised by unit tests (page-side code only runs against a real WhatsApp Web load, same limitation as earlier mediaStage branches).
 - **Open** - Confirm on the stage deployment that an affected image now forwards. If `mediaBlob` is not populated on the deployed WAB version, behavior falls back to today's path unchanged; may need to capture the resolved value of `msg.downloadMedia()` instead.
 
+## 2026-09-07 - Prod repeat of octet-stream failure; verified root cause via live CDP
+
+- **Symptom** - The exact `Unexpected mimetype application/octet-stream for media type image` failure returned on PROD (group message `...@g.us`, sender Rivkah), even after the blob-based fix deployed. Stack line numbers confirmed the new build ran.
+- **Diagnosis method** - The app's Chrome exposes CDP (`DevToolsActivePort`); opened an IAP tunnel and queried the live WhatsApp Web page directly. Read the mimetype check verbatim from the loaded bundle rather than guessing.
+- **Actual root cause (verified in live bundle)** - `downloadAndMaybeDecrypt` passes `e.mimetype ?? "application/octet-stream"` through a per-type mime allowlist gate and throws `InvalidMediaFileType("Unexpected mimetype ...")` when the value is not allowlisted. Live allowlists: image = {image/jpeg, image/png, image/webp}; video = {video/mp4, video/3gpp}; audio = {audio/ogg; codecs=opus, audio/mp4, audio/mpeg, audio/aac, audio/amr}; sticker = {image/webp, application/was}; document = no allowlist (`msgType` null, never gated). `application/octet-stream` is NOT in the image list → the throw. The root miss was `btnoda`... no: the `mediaBlob` read was the wrong lever; the message model does not keep a readable blob field on this build (`Msg.get` also returned null for the pruned message), so the code fell through to the gated helper.
+- **Fix (evidence-backed)** - In `downloadMediaViaPage`, compute `effectiveMime` (keep `msg.mimetype` unless it is octet-stream/missing, else canonical per-type fallback from the live allowlists) and pass it explicitly as `mimetype` to `downloadAndMaybeDecrypt`; return it as the attachment contentType so email attachments are usable instead of generic binary. Kept the `mediaBlob` fast path for builds that cache the blob.
+- **Verification** - `tsc --noEmit` clean, all 257 tests pass. Mechanism verified against the live allowlist sets; exact message could not be replayed (pruned from the in-memory store).
+- **Open** - Watch the next affected image on prod to confirm it now forwards with an `image/jpeg` attachment.
+
 ## 2026-09-02 - WhatsApp media download failure emails now carry the reason
 
 - **Symptom** - Error emails said only "Message Automation Hub could not download media... forwarded without attachments" with no clue WHY. Seen as group-message (catch-up) image forwards where `hasMedia` was true but bytes were unreachable.
