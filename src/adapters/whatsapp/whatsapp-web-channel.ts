@@ -646,10 +646,30 @@ implements InboundChannel, WhatsAppSender, WhatsAppChatSender, WhatsAppPairing {
 
         try {
           // ponytail: prefer the already-decrypted blob the msg.downloadMedia()
-          // above leaves on mediaData.mediaBlob. Reading it
-          // avoids downloadAndMaybeDecrypt, whose strict mimetype check rejects
-          // images served as application/octet-stream (old/migrated chats) with
-          // "Unexpected mimetype". Fall back to the strict path only if no blob.
+          // above leaves on mediaData.mediaBlob when the model keeps one
+          // (version-dependent), then fall back to downloadAndMaybeDecrypt.
+          //
+          // downloadAndMaybeDecrypt (verified in the live bundle 2026-09-07)
+          // passes `e.mimetype ?? "application/octet-stream"` through its mime
+          // allowlist gate: an image arriving as application/octet-stream (old
+          // chats) is NOT in the image allowlist and throws "Unexpected mimetype".
+          // Passing an allowlisted mimetype explicitly lets the real bytes
+          // through; the attachment keeps that usable type instead of octet-stream.
+          const mediaType = msg.type === "ptt" ? "audio" : msg.type;
+          const effectiveMime = msg.mimetype && msg.mimetype !== "application/octet-stream"
+            ? msg.mimetype
+            : mediaType === "image"
+              ? "image/jpeg"
+              : mediaType === "video"
+                ? "video/mp4"
+                : mediaType === "audio"
+                  ? "audio/ogg; codecs=opus"
+                  : mediaType === "sticker"
+                    ? "image/webp"
+                    : "application/octet-stream";
+
+          // ponytail: version-dependent fast path; safe, some builds cache the
+          // decrypted Blob here. When present the blob carries its own type.
           const blob = msg.mediaData?.mediaBlob;
           if (blob) {
             const data = await (window as any).WWebJS.arrayBufferToBase64Async(
@@ -657,7 +677,7 @@ implements InboundChannel, WhatsAppSender, WhatsAppChatSender, WhatsAppPairing {
             );
             return {
               data,
-              mimetype: blob.type || (msg.type === "image" ? "image/jpeg" : msg.mimetype),
+              mimetype: blob.type || effectiveMime,
               filename: msg.filename,
             };
           }
@@ -671,8 +691,6 @@ implements InboundChannel, WhatsAppSender, WhatsAppChatSender, WhatsAppPairing {
             },
           };
 
-          const mediaType = msg.type === "ptt" ? "audio" : msg.type;
-
           const decryptedMedia = await (window as any)
             .require("WAWebDownloadManager")
             .downloadManager.downloadAndMaybeDecrypt({
@@ -682,6 +700,7 @@ implements InboundChannel, WhatsAppSender, WhatsAppChatSender, WhatsAppPairing {
               mediaKey: msg.mediaKey,
               mediaKeyTimestamp: msg.mediaKeyTimestamp,
               type: mediaType,
+              mimetype: effectiveMime,
               signal: new AbortController().signal,
               downloadQpl: mockQpl,
             });
@@ -692,7 +711,7 @@ implements InboundChannel, WhatsAppSender, WhatsAppChatSender, WhatsAppPairing {
 
           return {
             data,
-            mimetype: msg.mimetype,
+            mimetype: effectiveMime,
             filename: msg.filename,
           };
         } catch (e: any) {

@@ -1,5 +1,13 @@
 # Logs
 
+## 2026-09-08 - External plugins repo drifted from the hub's plugin API
+
+- **Symptom** - `message-automation-plugins` (DLipson/message-automation-plugins, split off Aug 2) typechecked locally but a fresh install would break: it consumed the hub through a floating git dep (`github:DLipson/message-automation-hub`, no ref) and its installed clone was frozen at the Aug 2 state while hub master's plugin contract moved on.
+- **Root cause** - Two compounding: (1) the Aug 16 API-barrel trim (`5d670a8`) stopped exporting `EmailInbox`/`EmailLabeler`/`EmailStatusMarker`/`EmailSender`/`EmailAutomationHandler`, and the package `exports` map blocks deep imports, so external plugins could not name those types at all; (2) `HubPlugin` shape changed (`{name, onLoad}` → `{id, requires?, register}`) and `ctx.config`/`ctx.formatError`/`ctx.parseSubjectCommand` were removed from `PluginContext` — the plugins repo still used the old shape (config read from `ctx.config`).
+- **Fix** - Hub: re-export the five port/handler types from the API barrel (`e675258`). Plugins repo: workflows became `createXPlugin(config): HubPlugin` factories (config via closure, matching the in-core bridge); local `formatError`/`parseSubjectCommand` duplicates deleted in favor of the barrel; the fake context was trimmed to the real `PluginContext`; `vitest.config.ts` aliases the barrel to the hub's source `src/api/index.ts` (npm 10 does not run the git dep's `prepare`, so the installed dep has no `dist` — types and runtime values both resolve from source); dep pinned to `#e675258`.
+- **Verification** - Hub typecheck+build clean. Plugins repo: `tsc --noEmit` clean, 19/19 tests pass. Fresh `npm install` resolves the pinned SHA — note npm honors the lockfile over package.json, so the pin required an explicit `npm install @message-automation/core@github:DLipson/message-automation-hub#e675258` to update the lockfile's `resolved` ref.
+- **Open** - Hub still hardcodes its plugin list in `src/index.ts`; nothing loads the external plugins package yet. Wiring plugin discovery (from `node_modules`/config) is a separate feature, deliberately deferred.
+
 ## 2026-09-06 - Media download fails on images served as application/octet-stream
 
 - **Symptom** - Error email: `Message Automation Hub could not download media from a WhatsApp message. Reason: library download failed (t: t ...); direct download: downloadAndMaybeDecrypt failed: Unexpected mimetype application/octet-stream for media type image`.
@@ -8,6 +16,15 @@
 - **Fix** - In `downloadMediaViaPage`, after RESOLVED, read the already-decrypted `msg.mediaData.mediaBlob` and base64 it via `WWebJS.arrayBufferToBase64Async`; only fall back to `downloadAndMaybeDecrypt` when no blob exists.
 - **Verification** - `tsc --noEmit` clean; all 257 tests pass. Blob path not exercised by unit tests (page-side code only runs against a real WhatsApp Web load, same limitation as earlier mediaStage branches).
 - **Open** - Confirm on the stage deployment that an affected image now forwards. If `mediaBlob` is not populated on the deployed WAB version, behavior falls back to today's path unchanged; may need to capture the resolved value of `msg.downloadMedia()` instead.
+
+## 2026-09-07 - Prod repeat of octet-stream failure; verified root cause via live CDP
+
+- **Symptom** - The exact `Unexpected mimetype application/octet-stream for media type image` failure returned on PROD (group message `...@g.us`, sender Rivkah), even after the blob-based fix deployed. Stack line numbers confirmed the new build ran.
+- **Diagnosis method** - The app's Chrome exposes CDP (`DevToolsActivePort`); opened an IAP tunnel and queried the live WhatsApp Web page directly. Read the mimetype check verbatim from the loaded bundle rather than guessing.
+- **Actual root cause (verified in live bundle)** - `downloadAndMaybeDecrypt` passes `e.mimetype ?? "application/octet-stream"` through a per-type mime allowlist gate and throws `InvalidMediaFileType("Unexpected mimetype ...")` when the value is not allowlisted. Live allowlists: image = {image/jpeg, image/png, image/webp}; video = {video/mp4, video/3gpp}; audio = {audio/ogg; codecs=opus, audio/mp4, audio/mpeg, audio/aac, audio/amr}; sticker = {image/webp, application/was}; document = no allowlist (`msgType` null, never gated). `application/octet-stream` is NOT in the image list → the throw. The root miss was `btnoda`... no: the `mediaBlob` read was the wrong lever; the message model does not keep a readable blob field on this build (`Msg.get` also returned null for the pruned message), so the code fell through to the gated helper.
+- **Fix (evidence-backed)** - In `downloadMediaViaPage`, compute `effectiveMime` (keep `msg.mimetype` unless it is octet-stream/missing, else canonical per-type fallback from the live allowlists) and pass it explicitly as `mimetype` to `downloadAndMaybeDecrypt`; return it as the attachment contentType so email attachments are usable instead of generic binary. Kept the `mediaBlob` fast path for builds that cache the blob.
+- **Verification** - `tsc --noEmit` clean, all 257 tests pass. Mechanism verified against the live allowlist sets; exact message could not be replayed (pruned from the in-memory store).
+- **Open** - Watch the next affected image on prod to confirm it now forwards with an `image/jpeg` attachment.
 
 ## 2026-09-02 - WhatsApp media download failure emails now carry the reason
 
