@@ -175,7 +175,7 @@ implements InboundChannel, WhatsAppSender, WhatsAppChatSender, WhatsAppPairing {
       void this.catchUpSweep.runCatchUpIfPending();
     });
 
-    this.client.on("disconnected", reason => {
+    this.client.on("disconnected", async reason => {
       if (this.sessionEndHandled) return;
       this.sessionEndHandled = true;
       this.catchUpPending = true;
@@ -189,6 +189,16 @@ implements InboundChannel, WhatsAppSender, WhatsAppChatSender, WhatsAppPairing {
       // rejecting with `onQRChangedEvent already exists` (seen 2026-08-12, ~39s
       // after a LOGOUT). Exit now so systemd restarts a clean client instead of
       // dying on that cryptic unhandled rejection.
+      await this.notifyError(
+        "Message Hub: WhatsApp session disconnected",
+        [
+          "WhatsApp session was disconnected (e.g. logged out from phone).",
+          "Request a pairing code to reconnect once the service restarts.",
+          "",
+          `Reason: ${reasonText}`,
+          `Time: ${new Date().toISOString()}`,
+        ].join("\n"),
+      );
       process.exit(1);
     });
 
