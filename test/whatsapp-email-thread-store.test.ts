@@ -94,6 +94,18 @@ describe("JsonWhatsAppEmailThreadStore", () => {
     await expect(store.findByToken(second.token)).resolves.toEqual(second);
   });
 
+  it("getOrCreate returns the active thread after rotation (skips demoted)", async () => {
+    const filePath = await tempPath("threads.json");
+    const store = new JsonWhatsAppEmailThreadStore(filePath);
+
+    await store.getOrCreate("111@c.us", "Alice");
+    const rotated = await store.createNew("111@c.us", "Alice");
+
+    // getOrCreate must find the active thread, not the demoted one
+    const found = await store.getOrCreate("111@c.us", "Alice");
+    expect(found.token).toBe(rotated.token);
+  });
+
   it("treats threads without an active field as active (backward compat)", async () => {
     const filePath = await tempPath("threads.json");
     // Write a legacy thread without the active field

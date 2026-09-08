@@ -235,7 +235,11 @@ export class ForwardEmailToWhatsApp implements EmailAutomationHandler {
   ): Promise<void> {
     if (!this.options.threadStore) return;
     try {
-      await this.options.threadStore.createNew(chatId, phoneNumber);
+      // ponytail: reuse the friendly name from the existing thread so the
+      // new subject reads "Alice - 12025550108" instead of bare digits
+      const existing = await this.options.threadStore.getActive(chatId);
+      const label = existing ? contactLabelFromSubject(existing.subject) ?? phoneNumber : phoneNumber;
+      await this.options.threadStore.createNew(chatId, label);
     } catch (error) {
       this.logger.info(
         `Could not rotate thread for ${phoneNumber}: ${
@@ -299,4 +303,10 @@ function randomDelayMs(): number {
 
 function wait(milliseconds: number): Promise<void> {
   return new Promise(resolve => setTimeout(resolve, milliseconds));
+}
+
+// ponytail: extract the contact label from a thread subject like
+// "WhatsApp message from Alice - 12025550108 [wa:abc]"
+function contactLabelFromSubject(subject: string): string | null {
+  return /^WhatsApp message from (.+?) \[wa:/.exec(subject)?.[1] ?? null;
 }

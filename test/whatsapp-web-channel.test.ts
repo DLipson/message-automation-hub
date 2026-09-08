@@ -166,6 +166,26 @@ describe("WhatsAppWebChannel", () => {
     expect(client?.sendMessage).toHaveBeenCalledWith("1@c.us", "hi");
   });
 
+  it("returns @c.us chatId on sendMessage even when WA resolves to @lid", async () => {
+    const channel = new WhatsAppWebChannel({ phoneNumber: "12025550108" });
+
+    await channel.start();
+    const client = whatsappMock.clients[0]!;
+    client.handlers.get("ready")?.();
+    // getNumberId returns the @lid format
+    client.getNumberId.mockResolvedValue({ _serialized: "127513921597547@lid" });
+    client.pupPage = {
+      evaluate: async () => "127513921597547@lid",
+    };
+
+    const result = await channel.sendMessage({
+      phoneNumber: "12025550108",
+      text: "hi",
+    });
+
+    expect(result.chatId).toBe("12025550108@c.us");
+  });
+
   it("times out a hung chat lookup instead of hanging the send forever", async () => {
     const channel = new WhatsAppWebChannel({
       phoneNumber: "12025550108",

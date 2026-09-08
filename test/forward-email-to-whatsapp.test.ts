@@ -352,6 +352,44 @@ describe("ForwardEmailToWhatsApp", () => {
     }]);
   });
 
+  it("reuses the contact label from the existing thread when rotating", async () => {
+    const created: Array<{ chatId: string; displayName: string }> = [];
+    const existingThread = {
+      token: "old",
+      chatId: "12025550108@c.us",
+      subject: "WhatsApp message from Alice - 12025550108 [wa:old]",
+      rootMessageId: "<wa.old@message-automation-hub.local>",
+      active: true as const,
+    };
+    const threadStore: WhatsAppEmailThreadStore = {
+      async getOrCreate() { return null as any; },
+      async getActive() { return existingThread; },
+      async createNew(chatId, displayName) {
+        created.push({ chatId, displayName });
+        return { ...existingThread, token: "new", displayName };
+      },
+      async findByToken() { return null; },
+      async findByMessageId() { return null; },
+    };
+    const email = emailCommand({
+      subject: "WA: 12025550108",
+      text: "Hello",
+    });
+    const inbox = new FakeEmailInbox([email]);
+    const whatsapp = new FakeWhatsAppSender();
+    const forwarder = new ForwardEmailToWhatsApp(inbox, inbox, whatsapp, {
+      subjectPrefix: "WA:",
+      threadStore,
+    });
+
+    await runWithEmailHandler(inbox, forwarder).processUnread();
+
+    expect(created).toEqual([{
+      chatId: "12025550108@c.us",
+      displayName: "Alice - 12025550108",
+    }]);
+  });
+
   it("does not rotate the thread when send fails", async () => {
     const created: string[] = [];
     const threadStore: WhatsAppEmailThreadStore = {

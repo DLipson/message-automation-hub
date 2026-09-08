@@ -312,7 +312,11 @@ implements InboundChannel, WhatsAppSender, WhatsAppChatSender, WhatsAppPairing {
       this.ensureChatForPhoneNumber(message.phoneNumber),
       `Chat lookup for ${message.phoneNumber}`,
     );
-    return this.sendChatMessage({ chatId, text: message.text });
+    const sent = await this.sendChatMessage({ chatId, text: message.text });
+    // ponytail: ensureChatForPhoneNumber may return a @lid-format chatId,
+    // but inbound messages arrive as phoneNumber@c.us. Return the @c.us
+    // form so callers (thread rotation) store a chatId that matches lookups.
+    return { ...sent, chatId: `${message.phoneNumber}@c.us` };
   }
 
   async sendChatMessage(message: WhatsAppChatMessage): Promise<SentMessage> {
@@ -351,12 +355,14 @@ implements InboundChannel, WhatsAppSender, WhatsAppChatSender, WhatsAppPairing {
       message.image.filename,
     );
 
-    return this.sendAndTrack(
+    const sent = await this.sendAndTrack(
       chatId,
       this.client.sendMessage(chatId, media, {
         caption: message.text,
       }),
     );
+    // ponytail: same @lid → @c.us normalization as sendMessage
+    return { ...sent, chatId: `${message.phoneNumber}@c.us` };
   }
 
   private async sendReadyNotification(): Promise<void> {
