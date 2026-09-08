@@ -46,6 +46,7 @@ describe("loadConfig", () => {
         from: "bot@example.com",
         to: "me@example.com",
         messageIdDomain: appDefaults.emailMessageIdDomain,
+        maxAttachmentSizeBytes: appDefaults.maxAttachmentSizeBytes,
       },
       imap: {
         host: appDefaults.imapHost,
@@ -125,6 +126,15 @@ describe("loadConfig", () => {
         recipientPhoneNumber: "972501234567",
       },
     });
+  });
+
+  it("reads MAX_ATTACHMENT_SIZE_MB and converts to bytes", () => {
+    const config = loadConfig(
+      { ...validEnv, MAX_ATTACHMENT_SIZE_MB: "25" },
+      { smtpPassword: "secret" },
+    );
+
+    expect(config.email.maxAttachmentSizeBytes).toBe(25 * 1024 * 1024);
   });
 
   it("rejects both whitelist and blacklist for one WhatsApp forward type", () => {

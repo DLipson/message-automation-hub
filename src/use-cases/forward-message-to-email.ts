@@ -10,6 +10,14 @@ import {
 } from "./whatsapp-email-thread-store.js";
 
 const maxAttachments = 5;
+// ponytail: base64 + MIME headers inflate raw bytes ~37% on the wire
+const SMTP_ENCODING_OVERHEAD = 1.37;
+
+export function formatBytes(bytes: number): string {
+  return bytes >= 1048576
+    ? (bytes / 1048576).toFixed(1) + " MB"
+    : (bytes / 1024).toFixed(0) + " KB";
+}
 const receivedAtFormatter = new Intl.DateTimeFormat("en-GB", {
   day: "2-digit",
   month: "short",
@@ -24,6 +32,7 @@ export type ForwardMessageToEmailOptions = {
   from: string;
   to: string;
   threadStore: WhatsAppEmailThreadStore;
+  maxAttachmentSizeBytes?: number;
 };
 
 export class ForwardMessageToEmail {
@@ -34,18 +43,32 @@ export class ForwardMessageToEmail {
   ) {}
 
   async handle(message: InboundMessage): Promise<void> {
-    const attachments = this.attachmentsFor(message);
+    const allAttachments = this.attachmentsFor(message);
 
-    if (!message.text.trim() && attachments.length === 0) {
+    if (!message.text.trim() && allAttachments.length === 0) {
       return;
     }
 
+    const sizeLimit = this.options.maxAttachmentSizeBytes;
+    const accepted: MediaAttachment[] = [];
+    const oversized: MediaAttachment[] = [];
+
+    for (const attachment of allAttachments) {
+      const wireSize = Math.ceil(attachment.content.length * SMTP_ENCODING_OVERHEAD);
+      if (sizeLimit != null && wireSize > sizeLimit) {
+        oversized.push(attachment);
+      } else {
+        accepted.push(attachment);
+      }
+    }
+
+    const capped = accepted.slice(0, maxAttachments);
+    const omittedByCount = Math.max(0, accepted.length - maxAttachments);
+
     const sender = message.from.displayName ?? message.from.id;
     const contactLabel = this.senderLabelFor(message);
-    const thread = await this.options.threadStore.getOrCreate(
-      message.from.id,
-      contactLabel,
-    );
+    const thread = await this.options.threadStore.getActive(message.from.id)
+      ?? await this.options.threadStore.getOrCreate(message.from.id, contactLabel);
 
     this.logger.info(
       `Received WhatsApp message from ${sender}; forwarding to ${this.options.to}.`,
@@ -55,11 +78,11 @@ export class ForwardMessageToEmail {
       from: this.options.from,
       to: this.options.to,
       subject: thread.subject,
-      text: this.bodyFor(message),
+      text: this.bodyFor(message, oversized, omittedByCount),
       messageId: forwardedMessageId(thread, message.id),
       inReplyTo: thread.rootMessageId,
       references: [thread.rootMessageId],
-      ...(attachments.length > 0 ? { attachments: attachments.slice(0, maxAttachments) } : {}),
+      ...(capped.length > 0 ? { attachments: capped } : {}),
     });
 
     this.logger.info(
@@ -67,23 +90,48 @@ export class ForwardMessageToEmail {
     );
   }
 
-  private bodyFor(message: InboundMessage): string {
-    const attachmentCount = this.attachmentsFor(message).length;
-    const omittedAttachmentCount = Math.max(0, attachmentCount - maxAttachments);
-    const lines = [
-      message.text,
+  private bodyFor(
+    message: InboundMessage,
+    oversized: MediaAttachment[],
+    omittedByCount: number,
+  ): string {
+    const lines: string[] = [];
+
+    if (message.quotedMessage) {
+      const q = message.quotedMessage;
+      const prefix = q.sender ? `> [${q.sender}]: ` : "> ";
+      for (const line of q.text.split("\n")) {
+        lines.push(prefix + line);
+      }
+      lines.push("");
+    }
+
+    const text = message.author
+      ? `[${message.author}]: ${message.text}`
+      : message.text;
+    lines.push(
+      text,
       "",
       `Received: ${receivedAtFormatter.format(message.receivedAt)} UTC`,
-      "",
-      replyMarker,
-    ];
+    );
 
-    if (omittedAttachmentCount > 0) {
+    for (const attachment of oversized) {
+      const wireSize = Math.ceil(attachment.content.length * SMTP_ENCODING_OVERHEAD);
+      const name = attachment.filename ?? "unnamed";
       lines.push(
         "",
-        `Note: ${omittedAttachmentCount} additional attachment(s) were not forwarded because the per-message limit is ${maxAttachments}.`,
+        `Attachment not forwarded: ${name} (${formatBytes(wireSize)}) exceeds the ${formatBytes(this.options.maxAttachmentSizeBytes!)} size limit.`,
       );
     }
+
+    if (omittedByCount > 0) {
+      lines.push(
+        "",
+        `Note: ${omittedByCount} additional attachment(s) were not forwarded because the per-message limit is ${maxAttachments}.`,
+      );
+    }
+
+    lines.push("", replyMarker);
 
     return lines.join("\n");
   }

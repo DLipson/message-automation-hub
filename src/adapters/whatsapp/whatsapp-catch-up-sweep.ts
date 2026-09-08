@@ -13,9 +13,11 @@ export type RawWhatsAppMessage = {
   body: string;
   timestamp: number;
   hasMedia?: boolean;
+  hasQuotedMsg?: boolean;
   type?: string;
   inviteV4?: WhatsAppGroupInviteV4;
   downloadMedia?: () => Promise<RawWhatsAppMedia | undefined>;
+  getQuotedMessage?: () => Promise<RawWhatsAppMessage>;
   _data?: { notifyName?: string };
 };
 

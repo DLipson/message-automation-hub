@@ -97,6 +97,7 @@ implements InboundChannel, WhatsAppSender, WhatsAppChatSender, WhatsAppPairing {
   private readonly readyNotification?: WhatsAppWebChannelConfig["readyNotification"];
   private readonly errorNotification?: WhatsAppWebChannelConfig["errorNotification"];
   private readonly catchUpSweep: CatchUpSweep;
+  private readonly groupNameCache = new Map<string, string>();
   private handler?: InboundMessageHandler;
   private groupInviteHandler?: WhatsAppGroupInviteHandler;
   private pairingCodeRequests = 0;
@@ -440,7 +441,7 @@ implements InboundChannel, WhatsAppSender, WhatsAppChatSender, WhatsAppPairing {
       throw error;
     }
 
-    return { delivery };
+    return { chatId, delivery };
   }
 
   private async ensureChatForPhoneNumber(phoneNumber: string): Promise<string> {
@@ -518,10 +519,25 @@ implements InboundChannel, WhatsAppSender, WhatsAppChatSender, WhatsAppPairing {
   private async toInboundMessage(
     rawMessage: RawWhatsAppMessage,
   ): Promise<InboundMessage> {
-    const from = rawMessage._data?.notifyName
-      ? { id: rawMessage.from, displayName: rawMessage._data.notifyName }
+    const notifyName = rawMessage._data?.notifyName;
+    const isGroup = rawMessage.from.endsWith("@g.us");
+
+    let displayName = notifyName;
+    if (isGroup) {
+      const groupName = await this.groupNameFor(rawMessage.from);
+      displayName = groupName ?? notifyName;
+    }
+
+    const from = displayName
+      ? { id: rawMessage.from, displayName }
       : { id: rawMessage.from };
+
+    const author = isGroup
+      ? (notifyName ?? rawMessage.author)
+      : undefined;
+
     const attachments = await this.attachmentsFor(rawMessage);
+    const quotedMessage = await this.quotedMessageFor(rawMessage);
 
     const messageId = serializedIdOf(rawMessage)
       ?? `unknown-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
@@ -533,7 +549,42 @@ implements InboundChannel, WhatsAppSender, WhatsAppChatSender, WhatsAppPairing {
       text: rawMessage.body,
       receivedAt: new Date(rawMessage.timestamp * 1000),
       ...(attachments.length > 0 ? { attachments } : {}),
+      ...(author ? { author } : {}),
+      ...(quotedMessage ? { quotedMessage } : {}),
     };
+  }
+
+  private async groupNameFor(chatId: string): Promise<string | undefined> {
+    const cached = this.groupNameCache.get(chatId);
+    if (cached) return cached;
+
+    try {
+      const chat = await this.client.getChatById(chatId);
+      if (chat?.name) {
+        this.groupNameCache.set(chatId, chat.name);
+        return chat.name;
+      }
+    } catch (error) {
+      logWhatsApp(`Failed to fetch group name for ${chatId}: ${formatError(error)}`);
+    }
+    return undefined;
+  }
+
+  private async quotedMessageFor(
+    rawMessage: RawWhatsAppMessage,
+  ): Promise<{ text: string; sender?: string } | undefined> {
+    if (!rawMessage.hasQuotedMsg || !rawMessage.getQuotedMessage) return undefined;
+
+    try {
+      const quoted = await rawMessage.getQuotedMessage();
+      const text = quoted.body ?? "";
+      if (!text) return undefined;
+      const sender = quoted._data?.notifyName ?? quoted.author;
+      return sender ? { text, sender } : { text };
+    } catch (error) {
+      logWhatsApp(`Failed to fetch quoted message for ${messageIdFor(rawMessage)}: ${formatError(error)}`);
+      return undefined;
+    }
   }
 
   private async attachmentsFor(

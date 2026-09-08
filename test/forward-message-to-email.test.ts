@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import type { MediaAttachment } from "../src/domain/media.js";
 import type { EmailMessage, EmailSender } from "../src/ports/email-sender.js";
 import type { AppLogger } from "../src/ports/app-logger.js";
-import { ForwardMessageToEmail } from "../src/use-cases/forward-message-to-email.js";
+import { ForwardMessageToEmail, formatBytes } from "../src/use-cases/forward-message-to-email.js";
 import {
   replyMarker,
   type WhatsAppEmailThread,
@@ -39,6 +39,15 @@ class CapturingThreadStore implements WhatsAppEmailThreadStore {
     return this.thread;
   }
 
+  async getActive(): Promise<WhatsAppEmailThread | undefined> {
+    // ponytail: return undefined so the test can verify getOrCreate fallback path
+    return undefined;
+  }
+
+  async createNew(): Promise<WhatsAppEmailThread> {
+    return this.thread;
+  }
+
   async findByToken(): Promise<WhatsAppEmailThread | null> {
     return this.thread;
   }
@@ -57,6 +66,14 @@ class FakeThreadStore implements WhatsAppEmailThreadStore {
   };
 
   async getOrCreate(): Promise<WhatsAppEmailThread> {
+    return this.thread;
+  }
+
+  async getActive(): Promise<WhatsAppEmailThread | undefined> {
+    return this.thread;
+  }
+
+  async createNew(): Promise<WhatsAppEmailThread> {
     return this.thread;
   }
 
@@ -181,6 +198,71 @@ describe("ForwardMessageToEmail", () => {
     );
   });
 
+  it("routes inbound messages to the active thread", async () => {
+    const activeThread: WhatsAppEmailThread = {
+      token: "active1",
+      chatId: "12025550108@c.us",
+      subject: "WhatsApp message from A Friend - 12025550108 [wa:active1]",
+      rootMessageId: "<wa.active1@message-automation-hub.local>",
+      active: true,
+    };
+    const threadStore: WhatsAppEmailThreadStore = {
+      async getOrCreate() { throw new Error("should not be called"); },
+      async getActive() { return activeThread; },
+      async createNew() { return activeThread; },
+      async findByToken() { return activeThread; },
+      async findByMessageId() { return activeThread; },
+    };
+    const emailSender = new FakeEmailSender();
+    const forwarder = new ForwardMessageToEmail(emailSender, {
+      from: "bot@example.com",
+      to: "me@example.com",
+      threadStore,
+    });
+
+    await forwarder.handle({
+      id: "message-1",
+      channel: "whatsapp",
+      from: { id: "12025550108@c.us", displayName: "A Friend" },
+      text: "Hello",
+      receivedAt: new Date("2026-06-21T08:00:00.000Z"),
+    });
+
+    expect(emailSender.sent[0]?.subject).toBe(activeThread.subject);
+  });
+
+  it("falls back to getOrCreate when getActive returns undefined", async () => {
+    const fallbackThread: WhatsAppEmailThread = {
+      token: "fallback1",
+      chatId: "12025550108@c.us",
+      subject: "WhatsApp message from A Friend - 12025550108 [wa:fallback1]",
+      rootMessageId: "<wa.fallback1@message-automation-hub.local>",
+    };
+    const threadStore: WhatsAppEmailThreadStore = {
+      async getOrCreate() { return fallbackThread; },
+      async getActive() { return undefined; },
+      async createNew() { return fallbackThread; },
+      async findByToken() { return fallbackThread; },
+      async findByMessageId() { return fallbackThread; },
+    };
+    const emailSender = new FakeEmailSender();
+    const forwarder = new ForwardMessageToEmail(emailSender, {
+      from: "bot@example.com",
+      to: "me@example.com",
+      threadStore,
+    });
+
+    await forwarder.handle({
+      id: "message-1",
+      channel: "whatsapp",
+      from: { id: "12025550108@c.us", displayName: "A Friend" },
+      text: "Hello",
+      receivedAt: new Date("2026-06-21T08:00:00.000Z"),
+    });
+
+    expect(emailSender.sent[0]?.subject).toBe(fallbackThread.subject);
+  });
+
   it("forwards up to five WhatsApp attachments", async () => {
     const attachments = [
       imageAttachment("1.jpg"),
@@ -219,9 +301,9 @@ describe("ForwardMessageToEmail", () => {
           "",
           "Received: 21 Jun 2026, 08:00 UTC",
           "",
-          replyMarker,
-          "",
           "Note: 1 additional attachment(s) were not forwarded because the per-message limit is 5.",
+          "",
+          replyMarker,
         ].join("\n"),
         attachments: attachments.slice(0, 5),
       },
@@ -271,6 +353,198 @@ describe("ForwardMessageToEmail", () => {
     });
 
     expect(emailSender.sent[0]?.attachments).toEqual(attachments);
+  });
+
+  it("skips oversized attachments and adds a note above the reply marker", async () => {
+    const sizeLimit = 5 * 1024 * 1024; // 5 MB
+    const small = {
+      filename: "small.jpg",
+      contentType: "image/jpeg",
+      content: Buffer.alloc(100_000),
+    };
+    const large = {
+      filename: "big-video.mp4",
+      contentType: "video/mp4",
+      content: Buffer.alloc(4 * 1024 * 1024), // 4 MB raw -> ~5.5 MB on the wire
+    };
+    const emailSender = new FakeEmailSender();
+    const forwarder = new ForwardMessageToEmail(emailSender, {
+      from: "bot@example.com",
+      to: "me@example.com",
+      threadStore: new FakeThreadStore(),
+      maxAttachmentSizeBytes: sizeLimit,
+    });
+
+    await forwarder.handle({
+      id: "message-1",
+      channel: "whatsapp",
+      from: { id: "12025550108@c.us", displayName: "A Friend" },
+      text: "Check this out",
+      receivedAt: new Date("2026-06-21T08:00:00.000Z"),
+      attachments: [small, large],
+    });
+
+    const sent = emailSender.sent[0]!;
+    expect(sent.attachments).toEqual([small]);
+    expect(sent.text).toContain(
+      "Attachment not forwarded: big-video.mp4 (5.5 MB) exceeds the 5.0 MB size limit.",
+    );
+    // Note must appear above the reply marker so threaded clients show it
+    const noteIndex = sent.text!.indexOf("Attachment not forwarded");
+    const markerIndex = sent.text!.indexOf(replyMarker);
+    expect(noteIndex).toBeLessThan(markerIndex);
+  });
+
+  it("passes attachments under the size limit unchanged", async () => {
+    const attachment = {
+      filename: "photo.jpg",
+      contentType: "image/jpeg",
+      content: Buffer.alloc(500),
+    };
+    const emailSender = new FakeEmailSender();
+    const forwarder = new ForwardMessageToEmail(emailSender, {
+      from: "bot@example.com",
+      to: "me@example.com",
+      threadStore: new FakeThreadStore(),
+      maxAttachmentSizeBytes: 1024,
+    });
+
+    await forwarder.handle({
+      id: "message-1",
+      channel: "whatsapp",
+      from: { id: "12025550108@c.us", displayName: "A Friend" },
+      text: "Here",
+      receivedAt: new Date("2026-06-21T08:00:00.000Z"),
+      attachments: [attachment],
+    });
+
+    const sent = emailSender.sent[0]!;
+    expect(sent.attachments).toEqual([attachment]);
+    expect(sent.text).not.toContain("Attachment not forwarded");
+  });
+
+  it("skips multiple oversized attachments while keeping small ones", async () => {
+    const sizeLimit = 2 * 1024 * 1024; // 2 MB
+    const small = { filename: "ok.jpg", contentType: "image/jpeg", content: Buffer.alloc(100) };
+    const big1 = { filename: "huge1.mp4", contentType: "video/mp4", content: Buffer.alloc(2 * 1024 * 1024) };
+    const big2 = { filename: "huge2.mp4", contentType: "video/mp4", content: Buffer.alloc(3 * 1024 * 1024) };
+    const emailSender = new FakeEmailSender();
+    const forwarder = new ForwardMessageToEmail(emailSender, {
+      from: "bot@example.com",
+      to: "me@example.com",
+      threadStore: new FakeThreadStore(),
+      maxAttachmentSizeBytes: sizeLimit,
+    });
+
+    await forwarder.handle({
+      id: "message-1",
+      channel: "whatsapp",
+      from: { id: "12025550108@c.us", displayName: "A Friend" },
+      text: "Files",
+      receivedAt: new Date("2026-06-21T08:00:00.000Z"),
+      attachments: [small, big1, big2],
+    });
+
+    const sent = emailSender.sent[0]!;
+    expect(sent.attachments).toEqual([small]);
+    expect(sent.text).toContain("huge1.mp4");
+    expect(sent.text).toContain("huge2.mp4");
+  });
+
+  it("formats small sizes as KB and large sizes as MB", () => {
+    expect(formatBytes(1025)).toBe("1 KB");
+    expect(formatBytes(512 * 1024)).toBe("512 KB");
+    expect(formatBytes(1048576)).toBe("1.0 MB");
+    expect(formatBytes(5.3 * 1024 * 1024)).toBe("5.3 MB");
+  });
+
+  it("prefixes body with author name in group messages", async () => {
+    const emailSender = new FakeEmailSender();
+    const forwarder = new ForwardMessageToEmail(emailSender, {
+      from: "bot@example.com",
+      to: "me@example.com",
+      threadStore: new FakeThreadStore(),
+    });
+
+    await forwarder.handle({
+      id: "message-1",
+      channel: "whatsapp",
+      from: { id: "222@g.us", displayName: "Family Chat" },
+      text: "Hello everyone",
+      receivedAt: new Date("2026-06-21T08:00:00.000Z"),
+      author: "Alice",
+    });
+
+    const body = emailSender.sent[0]!.text!;
+    expect(body).toContain("[Alice]: Hello everyone");
+  });
+
+  it("renders quoted message as blockquote above the reply", async () => {
+    const emailSender = new FakeEmailSender();
+    const forwarder = new ForwardMessageToEmail(emailSender, {
+      from: "bot@example.com",
+      to: "me@example.com",
+      threadStore: new FakeThreadStore(),
+    });
+
+    await forwarder.handle({
+      id: "message-1",
+      channel: "whatsapp",
+      from: { id: "12025550108@c.us", displayName: "A Friend" },
+      text: "I agree",
+      receivedAt: new Date("2026-06-21T08:00:00.000Z"),
+      quotedMessage: { text: "Let's meet at 5", sender: "Charlie" },
+    });
+
+    const body = emailSender.sent[0]!.text!;
+    expect(body).toContain("> [Charlie]: Let's meet at 5");
+    expect(body.indexOf("> [Charlie]")).toBeLessThan(body.indexOf("I agree"));
+  });
+
+  it("renders quoted message without sender when sender is absent", async () => {
+    const emailSender = new FakeEmailSender();
+    const forwarder = new ForwardMessageToEmail(emailSender, {
+      from: "bot@example.com",
+      to: "me@example.com",
+      threadStore: new FakeThreadStore(),
+    });
+
+    await forwarder.handle({
+      id: "message-1",
+      channel: "whatsapp",
+      from: { id: "12025550108@c.us" },
+      text: "ok",
+      receivedAt: new Date("2026-06-21T08:00:00.000Z"),
+      quotedMessage: { text: "original text" },
+    });
+
+    const body = emailSender.sent[0]!.text!;
+    expect(body).toContain("> original text");
+    expect(body).not.toContain("> [");
+  });
+
+  it("renders both author and quoted message together", async () => {
+    const emailSender = new FakeEmailSender();
+    const forwarder = new ForwardMessageToEmail(emailSender, {
+      from: "bot@example.com",
+      to: "me@example.com",
+      threadStore: new FakeThreadStore(),
+    });
+
+    await forwarder.handle({
+      id: "message-1",
+      channel: "whatsapp",
+      from: { id: "222@g.us", displayName: "Group" },
+      text: "sounds good",
+      receivedAt: new Date("2026-06-21T08:00:00.000Z"),
+      author: "Alice",
+      quotedMessage: { text: "Let's go", sender: "Bob" },
+    });
+
+    const body = emailSender.sent[0]!.text!;
+    expect(body).toContain("> [Bob]: Let's go");
+    expect(body).toContain("[Alice]: sounds good");
+    expect(body.indexOf("> [Bob]")).toBeLessThan(body.indexOf("[Alice]"));
   });
 
   it("does not send an email for an empty message", async () => {

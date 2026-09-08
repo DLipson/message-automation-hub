@@ -8,10 +8,13 @@ export type WhatsAppEmailThread = {
   chatId: string;
   subject: string;
   rootMessageId: string;
+  active?: boolean;
 };
 
 export interface WhatsAppEmailThreadStore {
   getOrCreate(chatId: string, displayName: string): Promise<WhatsAppEmailThread>;
+  getActive(chatId: string): Promise<WhatsAppEmailThread | undefined>;
+  createNew(chatId: string, displayName: string): Promise<WhatsAppEmailThread>;
   findByToken(token: string): Promise<WhatsAppEmailThread | null>;
   findByMessageId(messageId: string): Promise<WhatsAppEmailThread | null>;
 }
