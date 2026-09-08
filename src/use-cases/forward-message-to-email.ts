@@ -97,11 +97,25 @@ export class ForwardMessageToEmail {
     oversized: MediaAttachment[],
     omittedByCount: number,
   ): string {
-    const lines = [
-      message.text,
+    const lines: string[] = [];
+
+    if (message.quotedMessage) {
+      const q = message.quotedMessage;
+      const prefix = q.sender ? `> [${q.sender}]: ` : "> ";
+      for (const line of q.text.split("\n")) {
+        lines.push(prefix + line);
+      }
+      lines.push("");
+    }
+
+    const text = message.author
+      ? `[${message.author}]: ${message.text}`
+      : message.text;
+    lines.push(
+      text,
       "",
       `Received: ${receivedAtFormatter.format(message.receivedAt)} UTC`,
-    ];
+    );
 
     for (const attachment of oversized) {
       const wireSize = Math.ceil(attachment.content.length * SMTP_ENCODING_OVERHEAD);

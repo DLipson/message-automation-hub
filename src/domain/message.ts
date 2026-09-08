@@ -7,6 +7,11 @@ export type ContactRef = {
   displayName?: string;
 };
 
+export type QuotedMessage = {
+  text: string;
+  sender?: string;
+};
+
 export type InboundMessage = {
   id: string;
   channel: MessageChannel;
@@ -14,4 +19,6 @@ export type InboundMessage = {
   text: string;
   receivedAt: Date;
   attachments?: MediaAttachment[];
+  author?: string;
+  quotedMessage?: QuotedMessage;
 };
