@@ -10,6 +10,14 @@ import {
 } from "./whatsapp-email-thread-store.js";
 
 const maxAttachments = 5;
+// ponytail: base64 + MIME headers inflate raw bytes ~37% on the wire
+const SMTP_ENCODING_OVERHEAD = 1.37;
+
+export function formatBytes(bytes: number): string {
+  return bytes >= 1048576
+    ? (bytes / 1048576).toFixed(1) + " MB"
+    : (bytes / 1024).toFixed(0) + " KB";
+}
 const receivedAtFormatter = new Intl.DateTimeFormat("en-GB", {
   day: "2-digit",
   month: "short",
@@ -46,7 +54,8 @@ export class ForwardMessageToEmail {
     const oversized: MediaAttachment[] = [];
 
     for (const attachment of allAttachments) {
-      if (sizeLimit != null && attachment.content.length > sizeLimit) {
+      const wireSize = Math.ceil(attachment.content.length * SMTP_ENCODING_OVERHEAD);
+      if (sizeLimit != null && wireSize > sizeLimit) {
         oversized.push(attachment);
       } else {
         accepted.push(attachment);
@@ -92,17 +101,14 @@ export class ForwardMessageToEmail {
       message.text,
       "",
       `Received: ${receivedAtFormatter.format(message.receivedAt)} UTC`,
-      "",
-      replyMarker,
     ];
 
     for (const attachment of oversized) {
-      const sizeMb = (attachment.content.length / (1024 * 1024)).toFixed(1);
-      const limitMb = (this.options.maxAttachmentSizeBytes! / (1024 * 1024)).toFixed(1);
+      const wireSize = Math.ceil(attachment.content.length * SMTP_ENCODING_OVERHEAD);
       const name = attachment.filename ?? "unnamed";
       lines.push(
         "",
-        `Attachment not forwarded: ${name} (${sizeMb} MB) exceeds the ${limitMb} MB size limit.`,
+        `Attachment not forwarded: ${name} (${formatBytes(wireSize)}) exceeds the ${formatBytes(this.options.maxAttachmentSizeBytes!)} size limit.`,
       );
     }
 
@@ -112,6 +118,8 @@ export class ForwardMessageToEmail {
         `Note: ${omittedByCount} additional attachment(s) were not forwarded because the per-message limit is ${maxAttachments}.`,
       );
     }
+
+    lines.push("", replyMarker);
 
     return lines.join("\n");
   }

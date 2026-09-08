@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import type { MediaAttachment } from "../src/domain/media.js";
 import type { EmailMessage, EmailSender } from "../src/ports/email-sender.js";
 import type { AppLogger } from "../src/ports/app-logger.js";
-import { ForwardMessageToEmail } from "../src/use-cases/forward-message-to-email.js";
+import { ForwardMessageToEmail, formatBytes } from "../src/use-cases/forward-message-to-email.js";
 import {
   replyMarker,
   type WhatsAppEmailThread,
@@ -219,9 +219,9 @@ describe("ForwardMessageToEmail", () => {
           "",
           "Received: 21 Jun 2026, 08:00 UTC",
           "",
-          replyMarker,
-          "",
           "Note: 1 additional attachment(s) were not forwarded because the per-message limit is 5.",
+          "",
+          replyMarker,
         ].join("\n"),
         attachments: attachments.slice(0, 5),
       },
@@ -273,17 +273,17 @@ describe("ForwardMessageToEmail", () => {
     expect(emailSender.sent[0]?.attachments).toEqual(attachments);
   });
 
-  it("skips oversized attachments and adds a note to the body", async () => {
-    const sizeLimit = 1024;
+  it("skips oversized attachments and adds a note above the reply marker", async () => {
+    const sizeLimit = 5 * 1024 * 1024; // 5 MB
     const small = {
       filename: "small.jpg",
       contentType: "image/jpeg",
-      content: Buffer.alloc(512),
+      content: Buffer.alloc(100_000),
     };
     const large = {
       filename: "big-video.mp4",
       contentType: "video/mp4",
-      content: Buffer.alloc(sizeLimit + 1),
+      content: Buffer.alloc(4 * 1024 * 1024), // 4 MB raw -> ~5.5 MB on the wire
     };
     const emailSender = new FakeEmailSender();
     const forwarder = new ForwardMessageToEmail(emailSender, {
@@ -305,8 +305,12 @@ describe("ForwardMessageToEmail", () => {
     const sent = emailSender.sent[0]!;
     expect(sent.attachments).toEqual([small]);
     expect(sent.text).toContain(
-      "Attachment not forwarded: big-video.mp4 (0.0 MB) exceeds the 0.0 MB size limit.",
+      "Attachment not forwarded: big-video.mp4 (5.5 MB) exceeds the 5.0 MB size limit.",
     );
+    // Note must appear above the reply marker so threaded clients show it
+    const noteIndex = sent.text!.indexOf("Attachment not forwarded");
+    const markerIndex = sent.text!.indexOf(replyMarker);
+    expect(noteIndex).toBeLessThan(markerIndex);
   });
 
   it("passes attachments under the size limit unchanged", async () => {
@@ -338,10 +342,10 @@ describe("ForwardMessageToEmail", () => {
   });
 
   it("skips multiple oversized attachments while keeping small ones", async () => {
-    const sizeLimit = 1024;
+    const sizeLimit = 2 * 1024 * 1024; // 2 MB
     const small = { filename: "ok.jpg", contentType: "image/jpeg", content: Buffer.alloc(100) };
-    const big1 = { filename: "huge1.mp4", contentType: "video/mp4", content: Buffer.alloc(2000) };
-    const big2 = { filename: "huge2.mp4", contentType: "video/mp4", content: Buffer.alloc(3000) };
+    const big1 = { filename: "huge1.mp4", contentType: "video/mp4", content: Buffer.alloc(2 * 1024 * 1024) };
+    const big2 = { filename: "huge2.mp4", contentType: "video/mp4", content: Buffer.alloc(3 * 1024 * 1024) };
     const emailSender = new FakeEmailSender();
     const forwarder = new ForwardMessageToEmail(emailSender, {
       from: "bot@example.com",
@@ -363,6 +367,13 @@ describe("ForwardMessageToEmail", () => {
     expect(sent.attachments).toEqual([small]);
     expect(sent.text).toContain("huge1.mp4");
     expect(sent.text).toContain("huge2.mp4");
+  });
+
+  it("formats small sizes as KB and large sizes as MB", () => {
+    expect(formatBytes(1025)).toBe("1 KB");
+    expect(formatBytes(512 * 1024)).toBe("512 KB");
+    expect(formatBytes(1048576)).toBe("1.0 MB");
+    expect(formatBytes(5.3 * 1024 * 1024)).toBe("5.3 MB");
   });
 
   it("does not send an email for an empty message", async () => {
