@@ -1,4 +1,5 @@
 import pkg from "whatsapp-web.js";
+import { fileURLToPath } from "node:url";
 import { platform } from "node:os";
 import { appDefaults } from "../../config.js";
 import { formatError } from "../../errors.js";
@@ -35,6 +36,27 @@ import {
 
 const { Client, LocalAuth, MessageMedia } = pkg;
 const maxSignedIntTimerDelayMs = 2_147_483_647;
+
+// WhatsApp Web build the wwebjs shim is verified to work against. Serving this
+// pinned build instead of whatever WhatsApp's CDN currently serves keeps the
+// session alive when WhatsApp rolls a build whose internals break the shim
+// (prod hit this 2026-09-09: authenticated x3, Invariant #56367, immediate
+// LOGOUT on build 2.3000.1047051837). Bump deliberately when wwebjs ships
+// support for a newer build. The HTML ships in src/adapters/whatsapp/web-versions/
+// and is copied to dist/ by the build script (same pattern as settings-page.html).
+const pinnedWhatsAppWebVersion = "2.3000.1046977494";
+
+const pinnedWebVersionsDir = fileURLToPath(
+  new URL("./web-versions/", import.meta.url),
+);
+
+// Session health watchdog. whatsapp-web.js can report "ready" and stay
+// connected while its page shim has actually broken (prod saw this 2026-09-09:
+// ready + catch-up errors, then LOGOUT). Poll getState(); if it stops
+// responding for a while, restart the service so systemd brings up a fresh
+// client instead of leaving a zombie that silently misses messages.
+const sessionHealthCheckIntervalMs = 10 * 60 * 1000;
+const sessionHealthCheckFailLimit = 3;
 
 export type WhatsAppForwardFilter = {
   enabled?: boolean;
@@ -109,6 +131,8 @@ implements InboundChannel, WhatsAppSender, WhatsAppChatSender, WhatsAppPairing {
   private linked = false;
   private unlinkedNotified = false;
   private deliveryQueue: Array<(status: DeliveryStatus) => void> = [];
+  private healthCheckMisses = 0;
+  private watchdogTimer?: NodeJS.Timeout;
 
   constructor(config: WhatsAppWebChannelConfig) {
     this.phoneNumber = config.phoneNumber;
@@ -135,6 +159,12 @@ implements InboundChannel, WhatsAppSender, WhatsAppChatSender, WhatsAppPairing {
     });
     this.client = new Client({
       authStrategy: new LocalAuth(),
+      webVersion: pinnedWhatsAppWebVersion,
+      webVersionCache: {
+        type: "local",
+        path: pinnedWebVersionsDir,
+        strict: true,
+      },
       puppeteer: {
         args: browserArgs(),
         protocolTimeout: 120_000,
@@ -295,6 +325,42 @@ implements InboundChannel, WhatsAppSender, WhatsAppChatSender, WhatsAppPairing {
 
     logWhatsApp("Initializing client.");
     await this.client.initialize();
+
+    this.watchdogTimer = setInterval(() => {
+      void this.checkSessionHealth();
+    }, sessionHealthCheckIntervalMs);
+    this.watchdogTimer.unref?.();
+  }
+
+  private async checkSessionHealth(): Promise<void> {
+    if (!this.linked || this.sessionEndHandled) return;
+
+    try {
+      const state = await this.client.getState();
+      if (state === "CONNECTED") {
+        this.healthCheckMisses = 0;
+        return;
+      }
+      logWhatsApp(`Session health: unexpected state ${state} while linked.`);
+    } catch (error) {
+      logWhatsApp(`Session health probe failed: ${formatError(error)}`);
+    }
+
+    this.healthCheckMisses += 1;
+    if (this.healthCheckMisses < sessionHealthCheckFailLimit) return;
+
+    this.sessionEndHandled = true;
+    await this.notifyError(
+      "Message Hub: WhatsApp client unresponsive",
+      [
+        "The WhatsApp client stayed linked but stopped responding to health",
+        "probes, so the service is restarting to recover.",
+        "",
+        `Missed ${this.healthCheckMisses} health checks in a row.`,
+        `Time: ${new Date().toISOString()}`,
+      ].join("\n"),
+    );
+    process.exit(1);
   }
 
   async requestPairingCode(): Promise<string> {

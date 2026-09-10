@@ -20,7 +20,7 @@
     "start:settings": "node dist/settings/settings-server.js",
     "secret:set:smtp": "tsx src/tools/set-smtp-password.ts",
     "typecheck": "tsc --noEmit",
-    "build": "tsc -p tsconfig.build.json && node -e \"fs.copyFileSync('src/settings/settings-page.html','dist/settings/settings-page.html')\" && node -e \"if(!require('fs').existsSync('dist/settings/settings-page.html')){console.error('settings-page.html missing from dist');process.exit(1)}\"",
+    "build": "tsc -p tsconfig.build.json && node -e \"fs.copyFileSync('src/settings/settings-page.html','dist/settings/settings-page.html')\" && node -e \"if(!require('fs').existsSync('dist/settings/settings-page.html')){console.error('settings-page.html missing from dist');process.exit(1)}\" && node -e \"fs.cpSync('src/adapters/whatsapp/web-versions','dist/adapters/whatsapp/web-versions',{recursive:true})\"",
     "prepare": "npm run build",
     "test": "vitest run"
   },
@@ -28,7 +28,7 @@
     "imapflow": "^1.4.2",
     "mailparser": "^3.9.11",
     "nodemailer": "^9.0.1",
-    "whatsapp-web.js": "^1.26.0"
+    "whatsapp-web.js": "git+https://github.com/wwebjs/whatsapp-web.js.git#942d236a11ad68807308b058303ba5256915979c"
   },
   "devDependencies": {
     "@types/mailparser": "^3.4.6",

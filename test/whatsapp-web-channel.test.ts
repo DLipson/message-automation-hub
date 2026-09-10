@@ -10,6 +10,7 @@ const whatsappMock = vi.hoisted(() => {
     readonly getNumberId = vi.fn(async () => ({ _serialized: "12025550108@c.us" }));
     readonly sendMessage = vi.fn(async () => ({ id: "sent" }));
     readonly getChats = vi.fn(async () => []);
+    readonly getState = vi.fn(async () => "CONNECTED");
     readonly getChatById = vi.fn(async (_id: string): Promise<{ name?: string }> => ({}));
     pupPage?: {
       evaluate: (...args: unknown[]) => Promise<unknown>;
@@ -120,6 +121,61 @@ describe("WhatsAppWebChannel", () => {
 
     expect(exit).toHaveBeenCalledWith(1);
     expect(log.mock.calls.flat().join("\n")).toContain("Client disconnected: LOGOUT");
+  });
+
+  it("restarts after repeated failed health probes on a linked client", async () => {
+    vi.useFakeTimers();
+    const log = vi.spyOn(console, "log").mockImplementation(() => {});
+    const exit = vi
+      .spyOn(process, "exit")
+      .mockImplementation((() => {}) as never);
+    const notifier = new FakeEmailSender();
+    const channel = new WhatsAppWebChannel({
+      phoneNumber: "12025550108",
+      errorNotification: {
+        sender: notifier,
+        from: "bot@example.com",
+        to: "owner@example.com",
+      },
+    });
+
+    await channel.start();
+    const client = whatsappMock.clients[0]!;
+    client.handlers.get("ready")?.();
+    expect(client.getState).toHaveBeenCalledTimes(0);
+
+    client.getState.mockRejectedValueOnce(new Error("page crashed"));
+    await vi.advanceTimersByTimeAsync(10 * 60 * 1000);
+    expect(exit).toHaveBeenCalledTimes(0);
+
+    client.getState.mockRejectedValueOnce(new Error("page crashed"));
+    await vi.advanceTimersByTimeAsync(10 * 60 * 1000);
+    expect(exit).toHaveBeenCalledTimes(0);
+
+    client.getState.mockRejectedValueOnce(new Error("page crashed"));
+    await vi.advanceTimersByTimeAsync(10 * 60 * 1000);
+    expect(exit).toHaveBeenCalledWith(1);
+    expect(
+      notifier.sent.some(m => m.subject === "Message Hub: WhatsApp client unresponsive"),
+    ).toBe(true);
+    expect(log.mock.calls.flat().join("\n")).toContain("Session health probe failed");
+  });
+
+  it("stays healthy when getState reports CONNECTED", async () => {
+    vi.useFakeTimers();
+    const exit = vi
+      .spyOn(process, "exit")
+      .mockImplementation((() => {}) as never);
+    const channel = new WhatsAppWebChannel({ phoneNumber: "12025550108" });
+
+    await channel.start();
+    whatsappMock.clients[0]?.handlers.get("ready")?.();
+
+    for (let i = 0; i < 5; i++) {
+      await vi.advanceTimersByTimeAsync(10 * 60 * 1000);
+    }
+
+    expect(exit).not.toHaveBeenCalled();
   });
 
   it("requests pairing codes through the WhatsAppPairing port", async () => {
