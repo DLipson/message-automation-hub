@@ -129,7 +129,19 @@ export class CatchUpSweep {
       if (Object.keys(state.chats).length === 0) return;
       await this.sweepForMissedMessages(state);
     } catch (error) {
-      this.deps.log(`Catch-up scan failed: ${formatError(error)}`);
+      const errorText = formatError(error);
+      this.deps.log(`Catch-up scan failed: ${errorText}`);
+      // ponytail: a failed sweep used to log only and silently drop the offline
+      // window's messages (seen 2026-09-10: 3 chat-list attempts failed, nobody
+      // knew). Surface it so a missed catch-up is never invisible again.
+      await this.deps.notifyError(
+        "WhatsApp catch-up scan failed",
+        [
+          "Missed messages were not replayed because the chat list could not be read.",
+          "",
+          `Error: ${errorText}`,
+        ].join("\n"),
+      );
     } finally {
       this.inFlight = false;
     }
@@ -224,23 +236,28 @@ export class CatchUpSweep {
 
   // ponytail: the sweep runs ~seconds after `ready`, while the page is still
   // syncing chats, so getChats()'s page evaluate can throw (seen 2026-08-17 as
-  // "Catch-up scan failed: r: r"). Retry a few times with a short delay; the
-  // whole sweep previously died on the first transient failure.
+  // "Catch-up scan failed: r: r"). That day 3 attempts with 5s delays were
+  // enough; on a fresh re-pair the page needed ~a minute (seen 2026-09-10 all 3
+  // tries failing). Retry with a longer budget and backoff instead of giving up.
   private async getChatsWithRetry(): Promise<Chat[]> {
+    const deadlineMs = Date.now() + 120_000;
+    let attempt = 1;
     let lastError: unknown;
-    for (let attempt = 1; attempt <= 3; attempt += 1) {
+
+    while (Date.now() < deadlineMs) {
       try {
         return await this.deps.getChats();
       } catch (error) {
         lastError = error;
-        if (attempt < 3) {
-          this.deps.log(
-            `Catch-up chat list attempt ${attempt} failed, retrying in 5s: ${formatError(error)}`,
-          );
-          await new Promise(resolve => setTimeout(resolve, 5000));
-        }
+        const delayMs = Math.min(5000 * attempt, 30_000);
+        this.deps.log(
+          `Catch-up chat list attempt ${attempt} failed, retrying in ${Math.round(delayMs / 1000)}s: ${formatError(error)}`,
+        );
+        attempt += 1;
+        await new Promise(resolve => setTimeout(resolve, delayMs));
       }
     }
+
     throw lastError;
   }
 }

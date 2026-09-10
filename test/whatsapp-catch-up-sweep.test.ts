@@ -47,6 +47,7 @@ function makeSweep(deps: {
   store: StoreLike;
   getChats?: () => Promise<Chat[]>;
   log?: (message: string) => void;
+  notifyError?: (subject: string, text: string) => Promise<void>;
   stateRef?: CatchUpStateRef;
 }) {
   let holder: CatchUpState | null = null;
@@ -61,7 +62,7 @@ function makeSweep(deps: {
       receivedAt: new Date(message.timestamp * 1000),
     }),
     shouldHandle: () => true,
-    notifyError: async () => {},
+    notifyError: deps.notifyError ?? (async () => {}),
     serializedIdOf,
     messageIdFor,
     log: deps.log ?? (() => {}),
@@ -98,6 +99,50 @@ describe("CatchUpSweep", () => {
 
     expect(getChats).toHaveBeenCalledTimes(2);
     expect(log.mock.calls.flat().join("\n")).not.toContain("Catch-up scan failed");
+  });
+
+  it("retries the catch-up chat list for a longer budget instead of three-and-die", async () => {
+    vi.useFakeTimers();
+    const store = fakeStore({ initialized: true, chats: { "123@c.us": 0 } });
+    const log = vi.fn();
+    // Page still syncing for the first three attempts (which the old 3-try code
+    // would have abandoned), then the chat list appears.
+    const getChats = vi.fn()
+      .mockRejectedValueOnce(new Error("r: r"))
+      .mockRejectedValueOnce(new Error("r: r"))
+      .mockRejectedValueOnce(new Error("r: r"))
+      .mockResolvedValueOnce([]);
+    const { sweep } = makeSweep({ store, getChats, log });
+    sweep.setForward(async () => {});
+
+    const run = sweep.runCatchUpIfPending();
+    // Attempt delays grow 5s, 10s, 15s; the appointment for attempt 4 sits at
+    // 5+10+15 = 30s. Advance past it.
+    await vi.advanceTimersByTimeAsync(32_000);
+    await run;
+
+    expect(getChats).toHaveBeenCalledTimes(4);
+    expect(log.mock.calls.flat().join("\n")).not.toContain("Catch-up scan failed");
+  });
+
+  it("alerts when the catch-up sweep ultimately gives up", async () => {
+    vi.useFakeTimers();
+    const store = fakeStore({ initialized: true, chats: { "123@c.us": 0 } });
+    const notifyError = vi.fn(async () => {});
+    const log = vi.fn();
+    // Page never becomes readable within the 120s budget.
+    const getChats = vi.fn().mockRejectedValue(new Error("r: r"));
+    const { sweep } = makeSweep({ store, getChats, log, notifyError });
+    sweep.setForward(async () => {});
+
+    const run = sweep.runCatchUpIfPending();
+    // Budget is 120s with 5→30s backoff sleeps (last sleep ends ~135s).
+    await vi.advanceTimersByTimeAsync(145_000);
+    await run;
+
+    expect(notifyError).toHaveBeenCalledTimes(1);
+    expect(notifyError.mock.calls[0][0]).toContain("catch-up scan failed");
+    expect(notifyError.mock.calls[0][0]).toContain("catch-up scan failed");
   });
 
   it("records a baseline on the first run and forwards nothing", async () => {
