@@ -101,7 +101,7 @@ describe("CatchUpSweep", () => {
     expect(log.mock.calls.flat().join("\n")).not.toContain("Catch-up scan failed");
   });
 
-  it("retries the catch-up chat list for a longer budget instead of three-and-die", async () => {
+  it("retries the catch-up chat list for a long budget instead of three-and-die", async () => {
     vi.useFakeTimers();
     const store = fakeStore({ initialized: true, chats: { "123@c.us": 0 } });
     const log = vi.fn();
@@ -128,21 +128,20 @@ describe("CatchUpSweep", () => {
   it("alerts when the catch-up sweep ultimately gives up", async () => {
     vi.useFakeTimers();
     const store = fakeStore({ initialized: true, chats: { "123@c.us": 0 } });
-    const notifyError = vi.fn(async () => {});
+    const notifyError = vi.fn(async (_subject: string) => {});
     const log = vi.fn();
-    // Page never becomes readable within the 120s budget.
+    // Page never becomes readable within the 600s budget.
     const getChats = vi.fn().mockRejectedValue(new Error("r: r"));
     const { sweep } = makeSweep({ store, getChats, log, notifyError });
     sweep.setForward(async () => {});
 
     const run = sweep.runCatchUpIfPending();
-    // Budget is 120s with 5→30s backoff sleeps (last sleep ends ~135s).
-    await vi.advanceTimersByTimeAsync(145_000);
+    // Budget is 600s with 5→60s backoff sleeps; give it room to exhaust.
+    await vi.advanceTimersByTimeAsync(720_000);
     await run;
 
     expect(notifyError).toHaveBeenCalledTimes(1);
-    expect(notifyError.mock.calls[0][0]).toContain("catch-up scan failed");
-    expect(notifyError.mock.calls[0][0]).toContain("catch-up scan failed");
+    expect(notifyError.mock.calls[0]![0]!).toContain("catch-up scan failed");
   });
 
   it("records a baseline on the first run and forwards nothing", async () => {

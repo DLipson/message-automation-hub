@@ -237,10 +237,12 @@ export class CatchUpSweep {
   // ponytail: the sweep runs ~seconds after `ready`, while the page is still
   // syncing chats, so getChats()'s page evaluate can throw (seen 2026-08-17 as
   // "Catch-up scan failed: r: r"). That day 3 attempts with 5s delays were
-  // enough; on a fresh re-pair the page needed ~a minute (seen 2026-09-10 all 3
-  // tries failing). Retry with a longer budget and backoff instead of giving up.
+  // enough; on a fresh re-pair the store stayed unqueryable for >2 minutes
+  // (seen 2026-09-10, all 7 two-minute-budget tries failing; a DevTools probe
+  // confirmed the store is healthy later). Retry for a long horizon with
+  // backoff; the notifyError in runCatchUpIfPending is the backstop.
   private async getChatsWithRetry(): Promise<Chat[]> {
-    const deadlineMs = Date.now() + 120_000;
+    const deadlineMs = Date.now() + 600_000;
     let attempt = 1;
     let lastError: unknown;
 
@@ -249,12 +251,12 @@ export class CatchUpSweep {
         return await this.deps.getChats();
       } catch (error) {
         lastError = error;
-        const delayMs = Math.min(5000 * attempt, 30_000);
+        const delayMs = Math.min(5000 * attempt, 60_000);
         this.deps.log(
           `Catch-up chat list attempt ${attempt} failed, retrying in ${Math.round(delayMs / 1000)}s: ${formatError(error)}`,
         );
         attempt += 1;
-        await new Promise(resolve => setTimeout(resolve, delayMs));
+        await new Promise<void>(resolve => setTimeout(resolve, delayMs));
       }
     }
 
