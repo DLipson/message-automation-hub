@@ -219,6 +219,11 @@ jobs:
           systemctl --no-pager --full status "\$service" || true
           systemctl is-active --quiet "\$service"
 
+          echo '=== journal for Sep 16 05:25-06:30 (event window) ==='
+          journalctl -u "\$service" --since "2026-09-16 05:25" --until "2026-09-16 06:30" --no-pager 2>&1 || true
+          echo '=== journal since last boot (tail 120) ==='
+          journalctl -u "\$service" -b --no-pager 2>&1 | tail -120 || true
+
           printf '[%s] ${complete_marker}\n' "\$(date --iso-8601=seconds)"
           REMOTE_SCRIPT
 
