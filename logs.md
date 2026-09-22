@@ -1,5 +1,13 @@
 # Logs
 
+## 2026-09-17 - Prod session revoked again (LOGOUT, Sep 16 05:39 UTC); journal confirmed via deploy dump
+
+- **Symptom** - Prod emailed "WhatsApp session was disconnected ... Reason: LOGOUT (Time: 2026-09-16T05:39:14.542Z)". No user action at that time.
+- **Evidence (prod journal, pulled through the deploy run)** - `05:39:14 WhatsApp Client disconnected: LOGOUT` (the `disconnected` handler, `whatsapp-web-channel.ts:209-234`); `05:39:19 Main process exited status=1/FAILURE`; `05:40:19` systemd restart (RestartSec 60s, counter 1); `05:40:42 Waiting to be linked`. Nothing else logged in the 05:25-05:39 window — no `State changed: CONFLICT`, no network blips → the wwebjs `LOGOUT` path (socket logout event / `post_logout` frame, `Client.js` `onLogoutEvent`), i.e. WhatsApp **server-side session revocation**, the same signature as 08-12 / 08-13 / 09-09. Not the watchdog (different email subject/exit path), not a VM reboot (last start 2026-07-27), not a code bug (pinned build live since Sep 10).
+- **How it was confirmed** - Local gcloud/SSH is unusable under NetFree (gcloud python CA error; IAP/SSH blocked), so the evidence had to come out through GitHub Actions: a temp-branch dispatch is rejected by the OIDC provider attribute condition (must be `master`/`stage`), so a journal-slice dump was added to `deploy-prod`'s startup script (commit `2e996a4`) and read from run `35225084855` output.
+- **Current state** - As of the Sep 17 deploy, prod still `Waiting to be linked` (unpaired ~48h, no re-pair yet). Sends fail fast with the one-time re-link alert; the catch-up sweep will replay missed messages after a re-pair.
+- **Open** - Re-pair prod (request a pairing code). The journal-window lines in `deploy.yml` hardcode the Sep 16 slice — generalize on the next deploy.yml change. Local docs commit `24af250` (Sep 10 entry) preserved on `keep/local-docs-24af250`, not on master.
+
 ## 2026-09-08 - External plugins repo drifted from the hub's plugin API
 
 - **Symptom** - `message-automation-plugins` (DLipson/message-automation-plugins, split off Aug 2) typechecked locally but a fresh install would break: it consumed the hub through a floating git dep (`github:DLipson/message-automation-hub`, no ref) and its installed clone was frozen at the Aug 2 state while hub master's plugin contract moved on.
