@@ -1,10 +1,11 @@
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const whatsappMock = vi.hoisted(() => {
   const clients: FakeClient[] = [];
 
   class FakeClient {
     readonly handlers = new Map<string, (...args: unknown[]) => unknown>();
+    readonly options: { puppeteer?: Record<string, unknown> };
     readonly initialize = vi.fn(async () => {});
     readonly requestPairingCode = vi.fn(async () => "123456");
     readonly getNumberId = vi.fn(async () => ({ _serialized: "12025550108@c.us" }));
@@ -16,7 +17,8 @@ const whatsappMock = vi.hoisted(() => {
       evaluate: (...args: unknown[]) => Promise<unknown>;
     };
 
-    constructor() {
+    constructor(options: { puppeteer?: Record<string, unknown> }) {
+      this.options = options;
       clients.push(this);
     }
 
@@ -34,10 +36,30 @@ const whatsappMock = vi.hoisted(() => {
 
 vi.mock("whatsapp-web.js", () => ({
   default: {
-    Client: whatsappMock.FakeClient,
+    Client: class extends whatsappMock.FakeClient {},
     LocalAuth: whatsappMock.FakeLocalAuth,
     MessageMedia: whatsappMock.FakeMessageMedia,
   },
+}));
+
+const stealthMock = vi.hoisted(() => {
+  const launch = vi
+    .fn()
+    .mockResolvedValue({ wsEndpoint: () => "ws://127.0.0.1:9/devtools", close: vi.fn(async () => {}) });
+  return {
+    addExtra: vi.fn(() => ({
+      use: vi.fn(),
+      launch,
+    })),
+    launch,
+  };
+});
+
+vi.mock("puppeteer-extra", () => ({
+  addExtra: stealthMock.addExtra,
+}));
+vi.mock("puppeteer-extra-plugin-stealth", () => ({
+  default: () => ({ name: "stealth" }),
 }));
 
 import type { EmailMessage, EmailSender } from "../src/ports/email-sender.js";
@@ -121,6 +143,65 @@ describe("WhatsAppWebChannel", () => {
 
     expect(exit).toHaveBeenCalledWith(1);
     expect(log.mock.calls.flat().join("\n")).toContain("Client disconnected: LOGOUT");
+  });
+
+  describe("stealth mode", () => {
+    beforeEach(() => {
+      stealthMock.launch.mockResolvedValue({
+        wsEndpoint: () => "ws://127.0.0.1:9/devtools",
+        close: vi.fn(async () => {}),
+      });
+      stealthMock.addExtra.mockImplementation(() => ({
+        use: vi.fn(),
+        launch: stealthMock.launch,
+      }));
+    });
+
+    it("launches a stealth browser and wires browserWSEndpoint when enabled", async () => {
+      const channel = new WhatsAppWebChannel({
+        phoneNumber: "12025550108",
+        stealthEnabled: true,
+      });
+
+      await channel.start();
+
+      expect(stealthMock.addExtra).toHaveBeenCalled();
+      expect(stealthMock.launch).toHaveBeenCalled();
+      expect(
+        whatsappMock.clients[0]?.options.puppeteer?.browserWSEndpoint,
+      ).toBe("ws://127.0.0.1:9/devtools");
+    });
+
+    it("does not launch a stealth browser when disabled", async () => {
+      const channel = new WhatsAppWebChannel({
+        phoneNumber: "12025550108",
+        stealthEnabled: false,
+      });
+
+      await channel.start();
+
+      expect(stealthMock.launch).not.toHaveBeenCalled();
+    });
+
+    it("reports the stealth flag on disconnect emails", async () => {
+      vi.spyOn(console, "log").mockImplementation(() => {});
+      vi.spyOn(process, "exit").mockImplementation((() => {}) as never);
+      const notifier = new FakeEmailSender();
+      const channel = new WhatsAppWebChannel({
+        phoneNumber: "12025550108",
+        stealthEnabled: true,
+        errorNotification: {
+          sender: notifier,
+          from: "bot@example.com",
+          to: "owner@example.com",
+        },
+      });
+
+      await channel.start();
+      await whatsappMock.clients[0]?.handlers.get("disconnected")?.("LOGOUT");
+
+      expect(notifier.sent[0]?.text).toContain("Stealth: enabled");
+    });
   });
 
   it("restarts after repeated failed health probes on a linked client", async () => {

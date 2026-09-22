@@ -28,6 +28,8 @@
     "imapflow": "^1.4.2",
     "mailparser": "^3.9.11",
     "nodemailer": "^9.0.1",
+    "puppeteer-extra": "^3.3.6",
+    "puppeteer-extra-plugin-stealth": "^2.11.2",
     "whatsapp-web.js": "git+https://github.com/wwebjs/whatsapp-web.js.git#942d236a11ad68807308b058303ba5256915979c"
   },
   "devDependencies": {

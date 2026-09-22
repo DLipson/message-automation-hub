@@ -1,6 +1,10 @@
 import pkg from "whatsapp-web.js";
 import { fileURLToPath } from "node:url";
 import { platform } from "node:os";
+import { join, resolve } from "node:path";
+import puppeteer from "puppeteer";
+import { addExtra } from "puppeteer-extra";
+import StealthPlugin from "puppeteer-extra-plugin-stealth";
 import { appDefaults } from "../../config.js";
 import { formatError } from "../../errors.js";
 import type { InboundMessage } from "../../domain/message.js";
@@ -84,6 +88,12 @@ export type WhatsAppWebChannelConfig = {
     chatLimit?: number;
     messageLimitPerChat?: number;
   };
+  // Launches Chromium through puppeteer-extra + stealth (fingerprinting
+  // mitigation against WhatsApp's server-side session revokes) and hands the
+  // running browser to whatsapp-web.js via `puppeteer.browserWSEndpoint`
+  // instead of letting wwebjs launch its own. An experiment, not a guarantee:
+  // gated by STEALTH_ENABLED (default on, set in providers.ts), easy to flip.
+  stealthEnabled?: boolean;
 };
 
 type RawWhatsAppMedia = {
@@ -116,6 +126,7 @@ implements InboundChannel, WhatsAppSender, WhatsAppChatSender, WhatsAppPairing {
   private readonly sendTimeoutMs: number;
   private readonly forwardStatuses: WhatsAppForwardFilter;
   private readonly forwardGroups: WhatsAppForwardFilter;
+  private readonly stealthEnabled: boolean;
   private readonly readyNotification?: WhatsAppWebChannelConfig["readyNotification"];
   private readonly errorNotification?: WhatsAppWebChannelConfig["errorNotification"];
   private readonly catchUpSweep: CatchUpSweep;
@@ -133,9 +144,11 @@ implements InboundChannel, WhatsAppSender, WhatsAppChatSender, WhatsAppPairing {
   private deliveryQueue: Array<(status: DeliveryStatus) => void> = [];
   private healthCheckMisses = 0;
   private watchdogTimer?: NodeJS.Timeout;
+  private stealthBrowser: InstanceType<typeof import("puppeteer").Browser> | undefined;
 
   constructor(config: WhatsAppWebChannelConfig) {
     this.phoneNumber = config.phoneNumber;
+    this.stealthEnabled = config.stealthEnabled ?? false;
     this.sendTimeoutMs = config.sendTimeoutMs ?? appDefaults.whatsappSendTimeoutMs;
     this.forwardStatuses = config.forwardStatuses ?? {};
     this.forwardGroups = config.forwardGroups ?? {};
@@ -172,6 +185,48 @@ implements InboundChannel, WhatsAppSender, WhatsAppChatSender, WhatsAppPairing {
     });
   }
 
+  // Launch Chromium ourselves through puppeteer-extra + stealth and point
+  // whatsapp-web.js at it via browserWSEndpoint. Must run BEFORE
+  // client.initialize(): the Client reads this.options.puppeteer at
+  // initialize-time (Client.js) and connects when browserWSEndpoint is present,
+  // instead of launching its own browser with local args.
+  private async launchStealthBrowser(): Promise<void> {
+    const extra = addExtra(
+      // puppeteer-extra's VanillaPuppeteer requires the ancient
+      // createBrowserFetcher that puppeteer 24 dropped; launch/connect are all
+      // we use and they exist on the installed module.
+      puppeteer as unknown as Parameters<typeof addExtra>[0],
+    );
+    extra.use(StealthPlugin());
+    this.stealthBrowser = await extra.launch({
+      headless: true,
+      defaultViewport: null,
+      userDataDir: stealthSessionDir,
+      args: browserArgs(),
+    });
+    logWhatsApp(
+      `Stealth mode active; connected via browserWSEndpoint (${this.stealthBrowser.wsEndpoint()}).`,
+    );
+    // The Client's runtime options carry the puppeteer config read at
+    // initialize(); the public d.ts omits `options`, so cast to it.
+    (this.client as unknown as {
+      options: { puppeteer?: Record<string, unknown> };
+    }).options.puppeteer = {
+      browserWSEndpoint: this.stealthBrowser.wsEndpoint(),
+      protocolTimeout: 120_000,
+    };
+  }
+
+  private async closeBrowser(): Promise<void> {
+    const browser = this.stealthBrowser;
+    this.stealthBrowser = undefined;
+    if (browser) {
+      await browser.close().catch(error => {
+        logWhatsApp(`Stealth browser close failed: ${formatError(error)}`);
+      });
+    }
+  }
+
   onMessage(handler: InboundMessageHandler): void {
     this.handler = handler;
     this.catchUpSweep.setForward(handler);
@@ -182,6 +237,10 @@ implements InboundChannel, WhatsAppSender, WhatsAppChatSender, WhatsAppPairing {
   }
 
   async start(): Promise<void> {
+    if (this.stealthEnabled) {
+      await this.launchStealthBrowser();
+    }
+
     this.client.on("code", () => {
       this.pairingCodeRequests += 1;
       logWhatsApp(
@@ -228,8 +287,12 @@ implements InboundChannel, WhatsAppSender, WhatsAppChatSender, WhatsAppPairing {
           "",
           `Reason: ${reasonText}`,
           `Time: ${new Date().toISOString()}`,
+          `Stealth: ${this.stealthEnabled ? "enabled" : "disabled"}`,
         ].join("\n"),
       );
+      // The browser is launched by us (stealth path) or by wwebjs (default);
+      // close it either way so systemd's restart doesn't orphan a Chromium.
+      await this.closeBrowser();
       process.exit(1);
     });
 
@@ -360,6 +423,7 @@ implements InboundChannel, WhatsAppSender, WhatsAppChatSender, WhatsAppPairing {
         `Time: ${new Date().toISOString()}`,
       ].join("\n"),
     );
+    await this.closeBrowser();
     process.exit(1);
   }
 
@@ -903,6 +967,15 @@ function browserArgs(): string[] {
     "--js-flags=--max-old-space-size=256",
   ];
 }
+
+// LocalAuth's session dir (its hardcoded dataPath './.wwebjs_auth/' + '/session').
+// The stealth-launched browser must use the SAME profile dir wwebjs writes the
+// session to, or the saved session is silently lost and a re-pair is forced.
+// userDataDir is a launch-time flag; puppeteer.connect() ignores it, so the
+// manual launch is the only place it can be set (LocalAuth.js sets it in
+// options.puppeteer, which is where the not-compatible guard reads it — that
+// guard fires only when wwebjs ITSELF launches with args, which this bypasses).
+const stealthSessionDir = join(resolve("./.wwebjs_auth"), "session");
 
 function senderLabelFor(message: RawWhatsAppMessage): string {
   const displayName = message._data?.notifyName;

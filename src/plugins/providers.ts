@@ -73,6 +73,7 @@ export function createWhatsAppWebPlugin(
 
       const whatsapp = new WhatsAppWebChannel({
         ...config.whatsapp,
+        stealthEnabled: readStealthEnabled(env),
         catchUp: {
           store: new JsonWhatsAppCatchUpStore(
             defaultWhatsAppCatchUpStorePath(env),
@@ -100,4 +101,13 @@ export function createWhatsAppWebPlugin(
       ctx.provide(capabilities.whatsappPairing, whatsapp);
     },
   };
+}
+
+// Experiment against WhatsApp's server-side session revokes: launch Chromium
+// through puppeteer-extra + stealth and hand it to whatsapp-web.js. Default ON
+// (stealth is the hypothesis); set STEALTH_ENABLED=false to disable without a
+// redeploy (set the env var in the .env file and restart the service).
+function readStealthEnabled(env: NodeJS.ProcessEnv): boolean {
+  const raw = env.STEALTH_ENABLED?.trim().toLowerCase();
+  return raw === undefined ? true : raw === "true" || raw === "1";
 }
