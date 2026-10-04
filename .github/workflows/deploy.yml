@@ -247,10 +247,23 @@ jobs:
             --zone "$GCP_ZONE" \
             --metadata-from-file startup-script="$deploy_script"
 
-          gcloud compute instances reset "$GCP_INSTANCE" \
+          # A stopped/terminated instance can't be reset; start it instead.
+          # Either way it boots and runs the startup-script just set above.
+          instance_status="$(gcloud compute instances describe "$GCP_INSTANCE" \
             --project "$GCP_PROJECT_ID" \
             --zone "$GCP_ZONE" \
-            --quiet
+            --format='value(status)')"
+          if [ "$instance_status" = "RUNNING" ]; then
+            gcloud compute instances reset "$GCP_INSTANCE" \
+              --project "$GCP_PROJECT_ID" \
+              --zone "$GCP_ZONE" \
+              --quiet
+          else
+            gcloud compute instances start "$GCP_INSTANCE" \
+              --project "$GCP_PROJECT_ID" \
+              --zone "$GCP_ZONE" \
+              --quiet
+          fi
 
           deadline=$((SECONDS + 1200))
           while [ "$SECONDS" -lt "$deadline" ]; do
