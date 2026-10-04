@@ -45,10 +45,14 @@ const maxSignedIntTimerDelayMs = 2_147_483_647;
 // pinned build instead of whatever WhatsApp's CDN currently serves keeps the
 // session alive when WhatsApp rolls a build whose internals break the shim
 // (prod hit this 2026-09-09: authenticated x3, Invariant #56367, immediate
-// LOGOUT on build 2.3000.1047051837). Bump deliberately when wwebjs ships
-// support for a newer build. The HTML ships in src/adapters/whatsapp/web-versions/
-// and is copied to dist/ by the build script (same pattern as settings-page.html).
-const pinnedWhatsAppWebVersion = "2.3000.1046977494";
+// LOGOUT on build 2.3000.1047051837). WhatsApp's server also stops accepting
+// NEW device links from too-old builds (2026-10-04: pairing code was accepted
+// by the phone, reached 100% loading, then the server revoked the session ~7s
+// later on the then-pinned 2.3000.1046977494). Bump deliberately: prefer the
+// build wppconnect-tracker currently marks current. The HTML ships in
+// src/adapters/whatsapp/web-versions/ and is copied to dist/ by the build
+// script (same pattern as settings-page.html).
+const pinnedWhatsAppWebVersion = "2.3000.1049263829";
 
 const pinnedWebVersionsDir = fileURLToPath(
   new URL("./web-versions/", import.meta.url),
