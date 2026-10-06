@@ -2,11 +2,14 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const whatsappMock = vi.hoisted(() => {
   const clients: FakeClient[] = [];
+  // Lets a test decide what initialize() does: resolve (default), hang forever
+  // (a stuck startup), or reject (the 2026-10-05 "Waiting failed" case).
+  let nextInitialize: Promise<void> | undefined;
 
   class FakeClient {
     readonly handlers = new Map<string, (...args: unknown[]) => unknown>();
     readonly options: { puppeteer?: Record<string, unknown> };
-    readonly initialize = vi.fn(async () => {});
+    readonly initialize = vi.fn(() => nextInitialize ?? Promise.resolve());
     readonly requestPairingCode = vi.fn(async () => "123456");
     readonly getNumberId = vi.fn(async () => ({ _serialized: "12025550108@c.us" }));
     readonly sendMessage = vi.fn(async () => ({ id: "sent" }));
@@ -26,12 +29,30 @@ const whatsappMock = vi.hoisted(() => {
       this.handlers.set(event, handler);
       return this;
     }
+
+    // Mirrors EventEmitter: the real Client extends it, and relinking relies on
+    // this to silence a dying client.
+    removeAllListeners(): this {
+      this.handlers.clear();
+      return this;
+    }
   }
 
   class FakeLocalAuth {}
   class FakeMessageMedia {}
 
-  return { clients, FakeClient, FakeLocalAuth, FakeMessageMedia };
+  return {
+    clients,
+    FakeClient,
+    FakeLocalAuth,
+    FakeMessageMedia,
+    get nextInitialize() {
+      return nextInitialize;
+    },
+    set nextInitialize(value: Promise<void> | undefined) {
+      nextInitialize = value;
+    },
+  };
 });
 
 vi.mock("whatsapp-web.js", () => ({
@@ -76,6 +97,7 @@ class FakeEmailSender implements EmailSender {
 
 afterEach(() => {
   whatsappMock.clients.length = 0;
+  whatsappMock.nextInitialize = undefined;
   vi.useRealTimers();
   vi.restoreAllMocks();
 });
@@ -131,7 +153,124 @@ describe("WhatsAppWebChannel", () => {
     expect(notifier.sent).toHaveLength(1);
   });
 
-  it("exits the process when the client disconnects", async () => {
+  it("keeps the process alive when the client disconnects", async () => {
+    const log = vi.spyOn(console, "log").mockImplementation(() => {});
+    const exit = vi
+      .spyOn(process, "exit")
+      .mockImplementation((() => {}) as never);
+    const notifier = new FakeEmailSender();
+    const channel = new WhatsAppWebChannel({
+      phoneNumber: "12025550108",
+      errorNotification: {
+        sender: notifier,
+        from: "bot@example.com",
+        to: "owner@example.com",
+      },
+    });
+
+    await channel.start();
+    await whatsappMock.clients[0]?.handlers.get("disconnected")?.("LOGOUT");
+
+    // A kick is routine, not a crash. Exiting here is what made every revocation
+    // look like a service crash and re-hit WhatsApp on a restart timer.
+    expect(exit).not.toHaveBeenCalled();
+    expect(log.mock.calls.flat().join("\n")).toContain("Client disconnected: LOGOUT");
+    // The operator is told, and told that the service is still up.
+    const disconnectNotice = notifier.sent.find(
+      m => m.subject === "Message Hub: WhatsApp session disconnected",
+    );
+    expect(disconnectNotice?.text).toContain("still running");
+  });
+
+  it("starts a fresh client to relink when a pairing code is requested after a kick", async () => {
+    vi.spyOn(console, "log").mockImplementation(() => {});
+    const exit = vi
+      .spyOn(process, "exit")
+      .mockImplementation((() => {}) as never);
+    const channel = new WhatsAppWebChannel({ phoneNumber: "12025550108" });
+
+    await channel.start();
+    expect(whatsappMock.clients).toHaveLength(1);
+
+    await whatsappMock.clients[0]?.handlers.get("disconnected")?.("LOGOUT");
+    await channel.requestPairingCode();
+
+    // A fresh Client, because the one that saw LOGOUT is dead and re-injects
+    // into a page that is going away.
+    expect(whatsappMock.clients).toHaveLength(2);
+    expect(whatsappMock.clients[1]?.requestPairingCode).toHaveBeenCalled();
+    expect(exit).not.toHaveBeenCalled();
+  });
+
+  it("closes the kicked client's browser before relinking", async () => {
+    vi.spyOn(console, "log").mockImplementation(() => {});
+    const channel = new WhatsAppWebChannel({ phoneNumber: "12025550108" });
+
+    await channel.start();
+    const kicked = whatsappMock.clients[0]!;
+    // The default (non-stealth) path: wwebjs launched this browser itself, so
+    // closing it depends on reaching it through the page handle.
+    const close = vi.fn(async () => {});
+    (kicked as unknown as { pupPage: unknown }).pupPage = {
+      evaluate: vi.fn(async () => undefined),
+      browser: () => ({ close }),
+    };
+
+    await kicked.handlers.get("disconnected")?.("LOGOUT");
+    await channel.requestPairingCode();
+
+    // A relink no longer exits the process, so a surviving Chromium would
+    // accumulate one per kick.
+    expect(close).toHaveBeenCalled();
+  });
+
+  it("ignores late events from the client that was replaced after a kick", async () => {
+    vi.spyOn(console, "log").mockImplementation(() => {});
+    const notifier = new FakeEmailSender();
+    const channel = new WhatsAppWebChannel({
+      phoneNumber: "12025550108",
+      errorNotification: {
+        sender: notifier,
+        from: "bot@example.com",
+        to: "owner@example.com",
+      },
+    });
+
+    await channel.start();
+    const kicked = whatsappMock.clients[0]!;
+    await kicked.handlers.get("disconnected")?.("LOGOUT");
+    const disconnectNotices = () =>
+      notifier.sent.filter(
+        m => m.subject === "Message Hub: WhatsApp session disconnected",
+      ).length;
+    const before = disconnectNotices();
+
+    await channel.requestPairingCode();
+    const fresh = whatsappMock.clients[1]!;
+
+    // The old page is still tearing down and throws one more event at us.
+    kicked.handlers.get("disconnected")?.("LOGOUT");
+    kicked.handlers.get("qr")?.("stale-qr");
+
+    // A stale event must not end the fresh client or close its browser.
+    expect(fresh.requestPairingCode).toHaveBeenCalledTimes(1);
+    expect(fresh.handlers.has("qr")).toBe(true);
+    expect(disconnectNotices()).toBe(before);
+  });
+
+  it("does not relink when a pairing code is requested on a healthy client", async () => {
+    vi.spyOn(console, "log").mockImplementation(() => {});
+    const channel = new WhatsAppWebChannel({ phoneNumber: "12025550108" });
+
+    await channel.start();
+    whatsappMock.clients[0]?.handlers.get("qr")?.("qr-1");
+    await channel.requestPairingCode();
+
+    expect(whatsappMock.clients).toHaveLength(1);
+  });
+
+  it("leaves a client that is only waiting for a pairing code alone", async () => {
+    vi.useFakeTimers();
     const log = vi.spyOn(console, "log").mockImplementation(() => {});
     const exit = vi
       .spyOn(process, "exit")
@@ -139,10 +278,134 @@ describe("WhatsAppWebChannel", () => {
     const channel = new WhatsAppWebChannel({ phoneNumber: "12025550108" });
 
     await channel.start();
-    await whatsappMock.clients[0]?.handlers.get("disconnected")?.("LOGOUT");
+    whatsappMock.clients[0]?.handlers.get("qr")?.("qr-1");
+
+    // The 2026-10-05 failure mode: a client sits waiting for a human for hours.
+    // Killing it here is exactly the babysitting this supervisor must not cause.
+    await vi.advanceTimersByTimeAsync(6 * 60 * 60 * 1000);
+
+    expect(exit).not.toHaveBeenCalled();
+  });
+
+  it("restarts when a pairing code is issued but the client never goes ready", async () => {
+    vi.useFakeTimers();
+    const log = vi.spyOn(console, "log").mockImplementation(() => {});
+    const exit = vi
+      .spyOn(process, "exit")
+      .mockImplementation((() => {}) as never);
+    const notifier = new FakeEmailSender();
+    const channel = new WhatsAppWebChannel({
+      phoneNumber: "12025550108",
+      errorNotification: {
+        sender: notifier,
+        from: "bot@example.com",
+        to: "owner@example.com",
+      },
+    });
+
+    await channel.start();
+    whatsappMock.clients[0]?.handlers.get("qr")?.("qr-1");
+    whatsappMock.clients[0]?.handlers.get("code")?.("12345678");
+    expect(exit).not.toHaveBeenCalled();
+
+    // Prod 2026-10-05: code accepted, "Loading screen 100%", then nothing for 73
+    // minutes. That is a stuck pairing, and it must not need a human restart.
+    await vi.advanceTimersByTimeAsync(11 * 60 * 1000);
 
     expect(exit).toHaveBeenCalledWith(1);
-    expect(log.mock.calls.flat().join("\n")).toContain("Client disconnected: LOGOUT");
+    expect(
+      notifier.sent.some(
+        m => m.subject === "WhatsApp pairing did not complete",
+      ),
+    ).toBe(true);
+    expect(log.mock.calls.flat().join("\n")).toContain("Client phase: linking");
+  });
+
+  it("restarts when the client never finishes starting", async () => {
+    vi.useFakeTimers();
+    vi.spyOn(console, "log").mockImplementation(() => {});
+    const exit = vi
+      .spyOn(process, "exit")
+      .mockImplementation((() => {}) as never);
+    const notifier = new FakeEmailSender();
+    const channel = new WhatsAppWebChannel({
+      phoneNumber: "12025550108",
+      errorNotification: {
+        sender: notifier,
+        from: "bot@example.com",
+        to: "owner@example.com",
+      },
+    });
+
+    // initialize() never resolves, and no qr/ready ever arrives. start() is
+    // deliberately not awaited: index.ts does the same, so the control server
+    // still comes up and the supervisor is what has to notice.
+    whatsappMock.nextInitialize = new Promise<void>(() => {});
+    void channel.start();
+    await vi.advanceTimersByTimeAsync(0);
+
+    await vi.advanceTimersByTimeAsync(11 * 60 * 1000);
+
+    expect(exit).toHaveBeenCalledWith(1);
+    expect(
+      notifier.sent.some(m => m.subject === "WhatsApp client startup stalled"),
+    ).toBe(true);
+  });
+
+  it("treats a throwing initialize() as fatal instead of leaving a dead client", async () => {
+    const log = vi.spyOn(console, "log").mockImplementation(() => {});
+    const exit = vi
+      .spyOn(process, "exit")
+      .mockImplementation((() => {}) as never);
+    const notifier = new FakeEmailSender();
+    const channel = new WhatsAppWebChannel({
+      phoneNumber: "12025550108",
+      errorNotification: {
+        sender: notifier,
+        from: "bot@example.com",
+        to: "owner@example.com",
+      },
+    });
+
+    whatsappMock.nextInitialize = Promise.reject(
+      new Error("Waiting failed: 30000ms exceeded"),
+    );
+
+    // Must not reject: it reports, then exits.
+    await expect(channel.start()).resolves.toBeUndefined();
+    expect(exit).toHaveBeenCalledWith(1);
+    expect(
+      notifier.sent.some(m => m.subject === "WhatsApp client failed to start"),
+    ).toBe(true);
+    expect(log.mock.calls.flat().join("\n")).toContain("30000ms exceeded");
+  });
+
+  it("includes recorded stray async errors in a fatal report", async () => {
+    vi.useFakeTimers();
+    const log = vi.spyOn(console, "log").mockImplementation(() => {});
+    vi.spyOn(process, "exit").mockImplementation((() => {}) as never);
+    const notifier = new FakeEmailSender();
+    const channel = new WhatsAppWebChannel({
+      phoneNumber: "12025550108",
+      errorNotification: {
+        sender: notifier,
+        from: "bot@example.com",
+        to: "owner@example.com",
+      },
+    });
+
+    await channel.start();
+    whatsappMock.clients[0]?.handlers.get("qr")?.("qr-1");
+    whatsappMock.clients[0]?.handlers.get("code")?.("12345678");
+    // What index.ts does when wwebjs/puppeteer reject a stray promise.
+    channel.recordStrayAsyncError(new Error("TargetCloseError: Target closed"));
+
+    await vi.advanceTimersByTimeAsync(11 * 60 * 1000);
+
+    expect(
+      notifier.sent.find(m => m.subject === "WhatsApp pairing did not complete")
+        ?.text,
+    ).toContain("TargetCloseError");
   });
 
   describe("stealth mode", () => {

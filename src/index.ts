@@ -17,6 +17,27 @@ import type { WhatsAppPairing } from "./ports/whatsapp-sender.js";
 import { reportStartupFailure } from "./startup.js";
 import { ProcessEmailAutomations } from "./use-cases/process-email-automations.js";
 
+// Stray async failures must not kill the process. whatsapp-web.js and puppeteer
+// both leave promises in flight across a session teardown (wwebjs re-races its
+// own inject() in exposeFunctionIfAbsent, puppeteer throws TargetCloseError when
+// the page target closes), and Node turns any unhandled rejection into process
+// death. That is why a kicked session looked like a crash on 2026-10-05: the
+// service chose to exit on LOGOUT, then died on that noise ~15s later.
+//
+// Genuine faults are caught by the WhatsApp supervisor and by the top-level
+// startup handler below, so swallowing these loses nothing but the noise.
+let strayAsyncErrorSink: ((error: unknown) => void) | undefined;
+
+process.on("unhandledRejection", reason => {
+  console.error(`Unhandled rejection (not fatal): ${errorMessage(reason)}`);
+  strayAsyncErrorSink?.(reason);
+});
+
+process.on("uncaughtException", error => {
+  console.error(`Uncaught exception (not fatal): ${errorMessage(error)}`);
+  strayAsyncErrorSink?.(error);
+});
+
 try {
   await start();
 } catch (error) {
@@ -39,6 +60,12 @@ async function start(): Promise<void> {
     createWhatsAppEmailBridgePlugin(config, process.env),
   ]);
   const whatsapp = pluginContext.require(capabilities.whatsappInbound);
+  // The plugin registers the concrete WhatsAppWebChannel. Reach for the optional
+  // stray-error sink structurally rather than widening the InboundChannel port,
+  // which every other implementation would then have to grow.
+  strayAsyncErrorSink = (
+    whatsapp as { recordStrayAsyncError?: (error: unknown) => void }
+  ).recordStrayAsyncError?.bind(whatsapp);
 
   const whatsappStart = whatsapp.start();
   startControlServer(
@@ -48,8 +75,13 @@ async function start(): Promise<void> {
   try {
     await whatsappStart;
   } catch (error) {
+    // A throw here means the client never came up (e.g. the browser failed to
+    // launch). Previously this was logged and the process carried on with a dead
+    // WhatsApp behind an "active" service, so nothing ever recovered it. It is a
+    // real fault: report it and let systemd restart.
     console.error(`WhatsApp startup failed: ${errorMessage(error)}`);
     await logWhatsAppSessionState();
+    process.exit(1);
   }
 
   if (!pluginContext.hasListeners("email.received")) {

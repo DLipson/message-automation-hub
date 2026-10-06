@@ -58,13 +58,37 @@ const pinnedWebVersionsDir = fileURLToPath(
   new URL("./web-versions/", import.meta.url),
 );
 
-// Session health watchdog. whatsapp-web.js can report "ready" and stay
-// connected while its page shim has actually broken (prod saw this 2026-09-09:
-// ready + catch-up errors, then LOGOUT). Poll getState(); if it stops
-// responding for a while, restart the service so systemd brings up a fresh
-// client instead of leaving a zombie that silently misses messages.
-const sessionHealthCheckIntervalMs = 10 * 60 * 1000;
+// Session supervision. whatsapp-web.js can report "ready" and stay connected
+// while its page shim has actually broken (prod saw this 2026-09-09: ready +
+// catch-up errors, then LOGOUT), and a startup/pairing stall used to hang with
+// no watchdog at all (prod 2026-10-05: a pairing code was accepted, logged
+// "Loading screen 100%", then sat for 73 minutes because the old watchdog was
+// armed only *after* client.initialize() resolved).
+//
+// One phase-aware supervisor, armed before initialize(), covers both. It only
+// ever acts on genuine faults, so a client that is legitimately waiting for a
+// human to request a pairing code is never killed. Anything it declares fatal
+// notifies the operator first, then exits so systemd brings up a fresh client.
+const superviseIntervalMs = 60 * 1000;
 const sessionHealthCheckFailLimit = 3;
+
+// A code is requested, then the human walks to their phone and types it. Ten
+// minutes is far longer than that walk and far shorter than "stuck forever".
+const startupStallTimeoutMs = 10 * 60 * 1000;
+const linkStallTimeoutMs = 10 * 60 * 1000;
+
+// getState() stays on a 10-minute cadence so the 3-miss limit keeps meaning
+// "~30 minutes of a linked client not answering". The supervisor itself ticks
+// every minute so a startup stall is caught inside its 10-minute budget; polling
+// a healthy linked client that often would restart a merely slow client.
+const sessionHealthCheckIntervalMs = 10 * 60 * 1000;
+
+type ClientPhase =
+  | "starting"
+  | "awaitingLink"
+  | "linking"
+  | "ready"
+  | "ended";
 
 export type WhatsAppForwardFilter = {
   enabled?: boolean;
@@ -125,7 +149,7 @@ function normalizeId(message: RawWhatsAppMessage): void {
 
 export class WhatsAppWebChannel
 implements InboundChannel, WhatsAppSender, WhatsAppChatSender, WhatsAppPairing {
-  private readonly client: InstanceType<typeof Client>;
+  private client: InstanceType<typeof Client>;
   private readonly phoneNumber: string;
   private readonly sendTimeoutMs: number;
   private readonly forwardStatuses: WhatsAppForwardFilter;
@@ -147,9 +171,20 @@ implements InboundChannel, WhatsAppSender, WhatsAppChatSender, WhatsAppPairing {
   private unlinkedNotified = false;
   private deliveryQueue: Array<(status: DeliveryStatus) => void> = [];
   private healthCheckMisses = 0;
+  private lastHealthProbeAt = 0;
   private watchdogTimer?: NodeJS.Timeout;
+  private phase: ClientPhase = "starting";
+  private phaseEnteredAt = Date.now();
+  private relinking = false;
+  private strayAsyncErrors: string[] = [];
   private stealthBrowser: InstanceType<typeof import("puppeteer").Browser> | undefined;
 
+  // ponytail: whatsapp-web.js leaves stray promises in flight across a logout
+  // (its own inject() re-races in exposeFunctionIfAbsent, and puppeteer throws
+  // TargetCloseError when teardown kills the page target). Those used to kill
+  // the process, which is why a kicked session looked like a crash. index.ts
+  // records them via recordStrayAsyncError() instead; genuine faults are caught
+  // by the supervisor below.
   constructor(config: WhatsAppWebChannelConfig) {
     this.phoneNumber = config.phoneNumber;
     this.stealthEnabled = config.stealthEnabled ?? false;
@@ -174,7 +209,15 @@ implements InboundChannel, WhatsAppSender, WhatsAppChatSender, WhatsAppPairing {
         set: state => { this.catchUpState = state; },
       },
     });
-    this.client = new Client({
+    this.client = this.createClient();
+  }
+
+  // Extracted so a post-LOGOUT relink can swap in a brand new Client. whatsapp-web.js
+  // clients are single-use: the one that saw LOGOUT has a dead socket and re-injects
+  // into a page that is going away, so reusing it is what produced the post-logout
+  // inject race. A fresh Client is the supported way back.
+  private createClient(): InstanceType<typeof Client> {
+    return new Client({
       authStrategy: new LocalAuth(),
       webVersion: pinnedWhatsAppWebVersion,
       webVersionCache: {
@@ -222,12 +265,25 @@ implements InboundChannel, WhatsAppSender, WhatsAppChatSender, WhatsAppPairing {
   }
 
   private async closeBrowser(): Promise<void> {
-    const browser = this.stealthBrowser;
+    // Prefer the browser we launched. Otherwise reach the one whatsapp-web.js
+    // launched itself: a relink no longer exits the process, so on the default
+    // path the old Chromium would otherwise stay alive next to the new one.
+    const browser = this.stealthBrowser ?? this.clientBrowser();
     this.stealthBrowser = undefined;
     if (browser) {
       await browser.close().catch(error => {
-        logWhatsApp(`Stealth browser close failed: ${formatError(error)}`);
+        logWhatsApp(`Browser close failed: ${formatError(error)}`);
       });
+    }
+  }
+
+  private clientBrowser(): InstanceType<typeof import("puppeteer").Browser> | undefined {
+    try {
+      return this.client?.pupPage?.browser();
+    } catch {
+      // The page target can already be detached mid-teardown, which is the whole
+      // point of being here.
+      return undefined;
     }
   }
 
@@ -241,70 +297,121 @@ implements InboundChannel, WhatsAppSender, WhatsAppChatSender, WhatsAppPairing {
   }
 
   async start(): Promise<void> {
+    this.armSupervisor();
+    await this.bringUpClient();
+  }
+
+  // Arm the supervisor BEFORE initialize(). It used to be armed only after
+  // initialize() resolved, which left every startup and pairing stall
+  // unsupervised - the 2026-10-05 73-minute hang included.
+  private armSupervisor(): void {
+    if (this.watchdogTimer) return;
+    this.watchdogTimer = setInterval(() => {
+      void this.supervise();
+    }, superviseIntervalMs);
+    this.watchdogTimer.unref?.();
+  }
+
+  // Launch a browser, wire listeners, and initialize. Used for the first boot and
+  // again for every post-LOGOUT relink.
+  private async bringUpClient(): Promise<void> {
+    this.setPhase("starting");
     if (this.stealthEnabled) {
       await this.launchStealthBrowser();
     }
+    this.attach(this.client);
+    logWhatsApp("Initializing client.");
 
-    this.client.on("code", () => {
+    try {
+      await this.client.initialize();
+    } catch (error) {
+      // A throw here means the client never came up at all. Swallowing it (the old
+      // behaviour) left the process "active" with a dead WhatsApp and no retry, so
+      // treat it as the fault it is: tell the operator, then let systemd restart.
+      await this.failFatal(
+        "WhatsApp client failed to start",
+        [
+          "The WhatsApp client could not initialize and the service is restarting.",
+          "If this repeats, the pinned web build or the browser launch is the likely cause.",
+          "",
+          `Error: ${formatError(error)}`,
+          `Time: ${new Date().toISOString()}`,
+          ...this.strayAsyncErrorLines(),
+        ].join("\n"),
+      );
+    }
+  }
+
+  // All listeners live here so a relink can re-attach them to a fresh Client.
+  private attach(client: InstanceType<typeof Client>): void {
+    client.on("code", () => {
       this.pairingCodeRequests += 1;
+      this.setPhase("linking");
       logWhatsApp(
         `Pairing code requested (#${this.pairingCodeRequests}). Use the authenticated settings UI to view it.`,
       );
     });
 
-    this.client.on("authenticated", () => {
+    client.on("authenticated", () => {
       this.awaitingLinkLogged = false;
       logWhatsApp("Client authenticated.");
     });
 
-    this.client.on("auth_failure", message => {
+    client.on("auth_failure", message => {
       logWhatsApp(`Authentication failed: ${formatError(message)}`);
     });
 
-    this.client.on("ready", () => {
+    client.on("ready", () => {
       logWhatsApp("Client is ready.");
       this.linked = true;
+      this.setPhase("ready");
       this.unlinkedNotified = false;
       this.sendReadyNotification();
       void this.catchUpSweep.runCatchUpIfPending();
     });
 
-    this.client.on("disconnected", async reason => {
+    client.on("disconnected", async reason => {
       if (this.sessionEndHandled) return;
       this.sessionEndHandled = true;
       this.catchUpPending = true;
       this.linked = false;
+      this.setPhase("ended");
       const reasonText = formatError(reason);
       logWhatsApp(
-        `Client disconnected: ${reasonText}. The WhatsApp session ended; restarting the service so a fresh client can re-link. Request a pairing code once it is back up.`,
+        `Client disconnected: ${reasonText}. WhatsApp ended the session; the service stays up. Request a pairing code to relink (a fresh client is started for you).`,
       );
-      // ponytail: whatsapp-web.js re-runs its own inject() after the logout
-      // navigation and TWO concurrent calls race in exposeFunctionIfAbsent,
-      // rejecting with `onQRChangedEvent already exists` (seen 2026-08-12, ~39s
-      // after a LOGOUT). Exit now so systemd restarts a clean client instead of
-      // dying on that cryptic unhandled rejection.
+      // Deliberately no process.exit() here. A kicked session is a routine event,
+      // not a crash: prod restarted the whole service on every LOGOUT, which both
+      // looked like a crash and re-hit WhatsApp from a possibly-flagged IP on a
+      // timer. WhatsApp revoked the session minutes after linking on 2026-09-16
+      // and again on 2026-10-05, so that loop had real cost.
+      //
+      // The old exit was a band-aid for whatsapp-web.js racing its own inject()
+      // after the logout navigation (onQRChangedEvent already exists) and for
+      // puppeteer's TargetCloseError during teardown. Both are stray-promise noise
+      // now caught by the process-level handlers in index.ts, so exiting is not
+      // needed to avoid dying on them.
       await this.notifyError(
         "Message Hub: WhatsApp session disconnected",
         [
-          "WhatsApp session was disconnected (e.g. logged out from phone).",
-          "Request a pairing code to reconnect once the service restarts.",
+          "WhatsApp ended the session (e.g. the server revoked it, or you logged",
+          "out from the phone). The service is still running and is waiting for you.",
+          "",
+          "Request a pairing code to relink; a fresh client is started automatically.",
           "",
           `Reason: ${reasonText}`,
           `Time: ${new Date().toISOString()}`,
           `Stealth: ${this.stealthEnabled ? "enabled" : "disabled"}`,
         ].join("\n"),
       );
-      // The browser is launched by us (stealth path) or by wwebjs (default);
-      // close it either way so systemd's restart doesn't orphan a Chromium.
       await this.closeBrowser();
-      process.exit(1);
     });
 
-    this.client.on("change_state", state => {
+    client.on("change_state", state => {
       logWhatsApp(`State changed: ${formatError(state)}`);
     });
 
-    this.client.on("loading_screen", (percent, message) => {
+    client.on("loading_screen", (percent, message) => {
       logWhatsApp(
         `Loading screen ${formatError(percent)}%: ${formatError(message)}`,
       );
@@ -312,15 +419,18 @@ implements InboundChannel, WhatsAppSender, WhatsAppChatSender, WhatsAppPairing {
 
     // whatsapp-web.js re-emits "qr" every ~20s while unlinked. Say so once per unlinked stretch
     // instead of every refresh, so a device waiting to be paired cannot bury real errors in the log.
-    this.client.on("qr", () => {
+    client.on("qr", () => {
       if (this.awaitingLinkLogged) return;
       this.awaitingLinkLogged = true;
+      // Only claim "awaitingLink" while a link is genuinely outstanding. After a
+      // LOGOUT the phase is "ended" and must stay there until a relink starts.
+      if (this.phase !== "ended") this.setPhase("awaitingLink");
       logWhatsApp(
         "Waiting to be linked. Nothing further will be logged until you use Request Pairing Code.",
       );
     });
 
-    this.client.on("message_create", msg => {
+    client.on("message_create", msg => {
       if (!msg.fromMe) return;
 
       const resolveDelivery = this.deliveryQueue.shift();
@@ -331,21 +441,21 @@ implements InboundChannel, WhatsAppSender, WhatsAppChatSender, WhatsAppPairing {
 
         if (ack === 2) {
           resolveDelivery("delivered");
-          this.client.removeListener("message_ack", onAck);
+          client.removeListener("message_ack", onAck);
         } else if (ack === -1) {
           resolveDelivery("error");
-          this.client.removeListener("message_ack", onAck);
+          client.removeListener("message_ack", onAck);
         }
       };
-      this.client.on("message_ack", onAck);
+      client.on("message_ack", onAck);
 
       setTimeout(() => {
         resolveDelivery("sent");
-        this.client.removeListener("message_ack", onAck);
+        client.removeListener("message_ack", onAck);
       }, this.sendTimeoutMs);
     });
 
-    this.client.on("message", async rawMessage => {
+    client.on("message", async rawMessage => {
       normalizeId(rawMessage);
       if (!this.handler && !this.groupInviteHandler) {
         return;
@@ -389,16 +499,62 @@ implements InboundChannel, WhatsAppSender, WhatsAppChatSender, WhatsAppPairing {
         );
       }
     });
-
-    logWhatsApp("Initializing client.");
-    await this.client.initialize();
-
-    this.watchdogTimer = setInterval(() => {
-      void this.checkSessionHealth();
-    }, sessionHealthCheckIntervalMs);
-    this.watchdogTimer.unref?.();
   }
 
+  // Phase-aware supervision. Runs every superviseIntervalMs and only declares a
+  // fault in states that cannot recover on their own:
+  //   starting     - initialize() never resolved
+  //   linking      - a code was issued but the client never went ready
+  //   ready        - getState() stopped answering or reports non-CONNECTED
+  // awaitingLink and ended are left alone on purpose: those are the states where
+  // a human is expected to act, and killing them is what made this need babysitting.
+  private async supervise(): Promise<void> {
+    if (this.phase === "awaitingLink" || this.phase === "ended") return;
+    const stalledForMs = Date.now() - this.phaseEnteredAt;
+
+    if (this.phase === "starting" && stalledForMs > startupStallTimeoutMs) {
+      await this.failFatal(
+        "WhatsApp client startup stalled",
+        [
+          "The WhatsApp client never finished starting and the service is restarting.",
+          "This used to hang silently with no watchdog at all.",
+          "",
+          `Phase: starting for ${Math.round(stalledForMs / 1000)}s`,
+          `Time: ${new Date().toISOString()}`,
+          ...this.strayAsyncErrorLines(),
+        ].join("\n"),
+      );
+      return;
+    }
+
+    if (this.phase === "linking" && stalledForMs > linkStallTimeoutMs) {
+      await this.failFatal(
+        "WhatsApp pairing did not complete",
+        [
+          "A pairing code was issued but the client never became ready, so the",
+          "service is restarting. Request a new pairing code once it is back up.",
+          "",
+          `Phase: linking for ${Math.round(stalledForMs / 1000)}s`,
+          `Pairing codes issued: ${this.pairingCodeRequests}`,
+          `Time: ${new Date().toISOString()}`,
+          ...this.strayAsyncErrorLines(),
+        ].join("\n"),
+      );
+      return;
+    }
+
+    if (this.phase === "ready") {
+      if (Date.now() - this.lastHealthProbeAt < sessionHealthCheckIntervalMs) {
+        return;
+      }
+      this.lastHealthProbeAt = Date.now();
+      await this.checkSessionHealth();
+    }
+  }
+
+  // The supervisor's original job, kept as-is: whatsapp-web.js can report "ready"
+  // and stay connected while its page shim has actually broken (prod 2026-09-09:
+  // ready + catch-up errors, then LOGOUT).
   private async checkSessionHealth(): Promise<void> {
     if (!this.linked || this.sessionEndHandled) return;
 
@@ -416,8 +572,7 @@ implements InboundChannel, WhatsAppSender, WhatsAppChatSender, WhatsAppPairing {
     this.healthCheckMisses += 1;
     if (this.healthCheckMisses < sessionHealthCheckFailLimit) return;
 
-    this.sessionEndHandled = true;
-    await this.notifyError(
+    await this.failFatal(
       "Message Hub: WhatsApp client unresponsive",
       [
         "The WhatsApp client stayed linked but stopped responding to health",
@@ -425,19 +580,89 @@ implements InboundChannel, WhatsAppSender, WhatsAppChatSender, WhatsAppPairing {
         "",
         `Missed ${this.healthCheckMisses} health checks in a row.`,
         `Time: ${new Date().toISOString()}`,
+        ...this.strayAsyncErrorLines(),
       ].join("\n"),
     );
-    await this.closeBrowser();
-    process.exit(1);
   }
 
   async requestPairingCode(): Promise<string> {
+    // A relink after a kick needs a fresh Client; the one that saw LOGOUT is dead
+    // and re-injects into a page that is going away. Do it here, on the human's
+    // request, rather than on a timer, so a revoked session is not re-dialled
+    // against WhatsApp's servers over and over with nobody asking.
+    await this.relinkIfEnded();
     logWhatsApp("Manual pairing code request received.");
     return await this.client.requestPairingCode(
       this.phoneNumber,
       true,
       maxSignedIntTimerDelayMs,
     );
+  }
+
+  private setPhase(phase: ClientPhase): void {
+    if (this.phase === phase) return;
+    this.phase = phase;
+    this.phaseEnteredAt = Date.now();
+    if (phase === "ready") this.healthCheckMisses = 0;
+    logWhatsApp(`Client phase: ${phase}.`);
+  }
+
+  // Record stray async failures instead of letting them kill the process. Public
+  // because index.ts owns the process-level handlers and has no business reaching
+  // into a WhatsApp adapter's internals to report them.
+  recordStrayAsyncError(error: unknown): void {
+    const text = formatError(error);
+    this.strayAsyncErrors.push(text);
+    // Keep the tail only: this is diagnostic context for the next real fault, and
+    // an unbounded list would grow for the life of the process.
+    if (this.strayAsyncErrors.length > 20) this.strayAsyncErrors.shift();
+    logWhatsApp(`Stray async error (not fatal): ${text}`);
+  }
+
+  private strayAsyncErrorLines(): string[] {
+    if (this.strayAsyncErrors.length === 0) return [];
+    return [
+      "",
+      `Stray async errors since boot (${this.strayAsyncErrors.length}):`,
+      ...this.strayAsyncErrors.slice(-5).map(text => `  - ${text}`),
+    ];
+  }
+
+  // A genuine fault: tell the operator, tidy up, then exit so systemd restarts
+  // with a clean process. Never used for an ordinary session kick.
+  private async failFatal(subject: string, text: string): Promise<void> {
+    this.sessionEndHandled = true;
+    logWhatsApp(`${subject}; restarting the service. ${text.replace(/\n+/g, " ")}`);
+    await this.notifyError(subject, text);
+    await this.closeBrowser();
+    process.exit(1);
+  }
+
+  // Bring up a replacement client after a LOGOUT, on demand. Guarded so two
+  // concurrent pairing-code requests cannot race two Chromium launches.
+  private async relinkIfEnded(): Promise<void> {
+    if (this.phase !== "ended") return;
+    if (this.relinking) {
+      throw new Error("A relink is already in progress; retry in a moment");
+    }
+    this.relinking = true;
+    try {
+      logWhatsApp("Session ended; starting a fresh WhatsApp client to relink.");
+      // Detach the old client before resetting sessionEndHandled below. A dying
+      // wwebjs client can still emit a late qr/disconnected while its page
+      // closes, and with the guard reset that would mark the *fresh* client
+      // ended, re-notify, and close its browser mid-pairing.
+      this.client?.removeAllListeners();
+      await this.closeBrowser();
+      this.client = this.createClient();
+      this.sessionEndHandled = false;
+      this.awaitingLinkLogged = false;
+      this.healthCheckMisses = 0;
+      this.readyNotificationSent = false;
+      await this.bringUpClient();
+    } finally {
+      this.relinking = false;
+    }
   }
 
   async sendMessage(message: WhatsAppDirectMessage): Promise<SentMessage> {
